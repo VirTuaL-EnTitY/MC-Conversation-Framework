@@ -1,0 +1,54 @@
+# ===== Gradle / 构建产物 =====
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# ===== Minecraft 开发运行时（Fabric Loom 生成的临时客户端/服务端）=====
+run/
+runs/
+game/
+
+# ===== IDE：IntelliJ IDEA =====
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# ===== IDE：Eclipse / VSCode =====
+.classpath
+.project
+.settings/
+bin/
+.factorypath
+.vscode/
+*.launch
+
+# ===== Java 通用 =====
+*.class
+hs_err_pid*.log
+replay_pid*.log
+
+# ===== 操作系统杂项 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ===== 日志 / 临时文件 =====
+*.log
+logs/
+tmp/
+
+# ===== 运行时配置（含 API Key 等敏感信息，不应入库）=====
+# 这条主要影响开发期本地运行（run/config/mccf/），生产环境的配置文件
+# 也不会被 Gradle 构建过程捕获，所以这里只覆盖 dev 场景。
+run/config/mccf/
+
+# ===== 凭证 / 本地密钥 =====
+*.pem
+*.key
+.env
+.env.local

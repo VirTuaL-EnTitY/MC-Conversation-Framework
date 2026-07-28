@@ -1,0 +1,37 @@
+{
+	"schemaVersion": 1,
+	"id": "mccf",
+	"version": "${version}",
+	"name": "MC Conversation Framework",
+	"description": "沉浸式多人交流基础设施：空间化字幕、动态对话上下文、可插拔翻译 Provider。让不同语言的玩家在同一服务器自然交流，同时保持信息只流向真正能接收到它的人。",
+	"authors": [
+		"You"
+	],
+	"contact": {
+		"homepage": "https://example.com"
+	},
+	"license": "MIT",
+	"icon": "assets/mccf/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"net.mccf.mod.MCCF"
+		],
+		"client": [
+			"net.mccf.mod.client.MCCFClient"
+		],
+		"modmenu": [
+			"net.mccf.mod.client.config.MCCFModMenuIntegration"
+		]
+	},
+	"mixins": [],
+	"depends": {
+		"fabricloader": ">=0.15.11",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"modmenu": "*"
+	}
+}

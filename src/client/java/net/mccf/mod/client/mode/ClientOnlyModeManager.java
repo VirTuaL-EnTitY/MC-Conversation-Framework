@@ -1,0 +1,134 @@
+package net.mccf.mod.client.mode;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.loader.api.FabricLoader;
+import net.mccf.mod.MCCF;
+import net.mccf.mod.network.RequestConfigPayload;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+/**
+ * 判断"当前是否处于纯客户端模式"（服务器没有安装 MCCF，或玩家手动强制切换）。
+ *
+ * 纯客户端模式下，MCCF 不再依赖任何服务端组件：不做空间化听觉判定、不做
+ * 点对点分发、不渲染悬浮/物品栏字幕——只是把收到的聊天消息（不管是谁发的、
+ * 不管距离多远，因为纯客户端模式下完全看不到这些服务端才有的信息）在本地
+ * 翻译成玩家自己的语言，追加显示在聊天栏里。翻译用的 Provider 配置是玩家
+ * 本地自己维护的一份（见 {@link net.mccf.mod.client.config.ClientOnlyTranslationConfig}），
+ * 不经过任何服务端权限校验。
+ *
+ * <p>检测方式：{@link ClientPlayNetworking#canSend(net.minecraft.network.packet.CustomPayload.Id)}
+ * 反映的是"当前连接的服务器是否声明了可以接收某个自定义包"，这个声明只有在
+ * 服务端 MCCF 通过 {@code PayloadTypeRegistry}/{@code ServerPlayNetworking.registerGlobalReceiver}
+ * 注册了对应通道时才会存在。用它来判断"服务器有没有装 MCCF"是可靠的——不需要
+ * 额外发一个"探测"包等服务端回应，Fabric 在登录阶段的通道协商（vanilla 的
+ * "已知通道"机制）已经把这个信息带过来了。
+ *
+ * <p>玩家也可以在配置界面里手动强制切换模式（见 {@link Override}），
+ * 优先级高于自动检测——例如玩家想在装了 MCCF 的服务器上也只用本地翻译，
+ * 不依赖服务端的空间化分发。
+ */
+public final class ClientOnlyModeManager {
+
+	public enum Override {
+		/** 跟随自动检测结果（默认）。 */
+		AUTO,
+		/** 无论服务器是否装了 MCCF，都强制使用纯客户端模式。 */
+		FORCE_CLIENT_ONLY,
+		/** 强制视为"服务器已装 MCCF"，走完整的服务端空间化流程（前提是服务器确实装了，否则功能不会生效）。 */
+		FORCE_SERVER_MODE
+	}
+
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+	private static final Path CONFIG_DIR = FabricLoader.getInstance().getConfigDir().resolve(MCCF.MOD_ID);
+	private static final Path STATE_FILE = CONFIG_DIR.resolve("client-mode.json");
+
+	/** 纯粹用于 Gson 序列化的内部数据结构。 */
+	private static final class PersistedState {
+		String override = Override.AUTO.name();
+	}
+
+	private static Override override = Override.AUTO;
+
+	/** 本次连接里自动检测到的结果：服务器是否声明了 MCCF 的网络通道。未连接任何服务器时为 false。 */
+	private static boolean serverHasMod = false;
+
+	private ClientOnlyModeManager() {}
+
+	/** 客户端启动时调用一次，读取玩家上次保存的手动覆盖设置。 */
+	public static void load() {
+		try {
+			if (Files.exists(STATE_FILE)) {
+				try (Reader reader = Files.newBufferedReader(STATE_FILE)) {
+					PersistedState state = GSON.fromJson(reader, PersistedState.class);
+					if (state != null && state.override != null) {
+						try {
+							override = Override.valueOf(state.override);
+						} catch (IllegalArgumentException ignored) {
+							override = Override.AUTO;
+						}
+					}
+				}
+			}
+		} catch (IOException e) {
+			MCCF.LOGGER.error("[MCCF] Failed to read client-only mode state, defaulting to AUTO.", e);
+		}
+	}
+
+	private static void save() {
+		try {
+			Files.createDirectories(CONFIG_DIR);
+			PersistedState state = new PersistedState();
+			state.override = override.name();
+			try (Writer writer = Files.newBufferedWriter(STATE_FILE)) {
+				GSON.toJson(state, writer);
+			}
+		} catch (IOException e) {
+			MCCF.LOGGER.error("[MCCF] Failed to save client-only mode state.", e);
+		}
+	}
+
+	/** 在 {@code ClientPlayConnectionEvents.JOIN} 时调用，刷新自动检测结果。 */
+	public static void onJoinServer() {
+		serverHasMod = ClientPlayNetworking.canSend(RequestConfigPayload.ID);
+		MCCF.LOGGER.info("[MCCF] Server MCCF detection: {}", serverHasMod ? "detected" : "not detected");
+	}
+
+	/** 在 {@code ClientPlayConnectionEvents.DISCONNECT} 时调用，避免残留上一个服务器的检测结果。 */
+	public static void onDisconnect() {
+		serverHasMod = false;
+	}
+
+	public static Override getOverride() {
+		return override;
+	}
+
+	public static void setOverride(Override newOverride) {
+		override = newOverride == null ? Override.AUTO : newOverride;
+		save();
+	}
+
+	/**
+	 * 当前是否应该按纯客户端模式运行。
+	 *
+	 * @return true 表示应该只做本地聊天翻译，不依赖任何服务端功能
+	 */
+	public static boolean isClientOnlyModeActive() {
+		return switch (override) {
+			case FORCE_CLIENT_ONLY -> true;
+			case FORCE_SERVER_MODE -> false;
+			case AUTO -> !serverHasMod;
+		};
+	}
+
+	/** 供配置界面展示"自动检测到的结果是什么"，与最终生效结果（可能被手动覆盖）区分开。 */
+	public static boolean isServerDetected() {
+		return serverHasMod;
+	}
+}
