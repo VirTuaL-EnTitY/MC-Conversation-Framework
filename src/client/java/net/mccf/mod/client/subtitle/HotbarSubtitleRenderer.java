@@ -15,7 +15,8 @@ import java.util.List;
  * 对应"多人字幕"需求：多个说话者同时说话时，按名字排序纵向堆叠显示，
  * 自动避免重叠；每条字幕背景做半透明处理，不遮挡物品栏内容。
  *
- * 挂载点：由 MCCFClient 通过 HudElementRegistry.addLast 注册。
+ * 挂载点：由 MCCFClient 通过 HudRenderCallback.EVENT.register 注册
+ * （1.21.1 上用旧 API；1.21.6+ 才有 HudElementRegistry.addLast）。
  */
 public class HotbarSubtitleRenderer {
 
