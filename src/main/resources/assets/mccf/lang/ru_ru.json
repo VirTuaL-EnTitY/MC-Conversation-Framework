@@ -73,5 +73,21 @@
   "mccf.provider.mock": "Имитация (отладка)",
   "mccf.provider.ollama": "Ollama (локально)",
   "mccf.provider.openai": "OpenAI",
-  "mccf.tip.first_join": "[MCCF] MC Conversation Framework готов. Перейдите в Настройки → Управление → Назначение клавиш, чтобы назначить клавишу для MCCF и открыть экран конфигурации."
+  "mccf.config.tab.server": "Конфигурация сервера",
+	"mccf.config.tab.local": "Локальные настройки",
+	"mccf.config.activate": "Сделать по умолчанию",
+	"mccf.config.activate.current": "Текущий по умолчанию",
+	"mccf.config.activate_pending": "Помечено для активации. Нажмите «Сохранить», чтобы применить.",
+
+	"mccf.history.title": "История чата",
+	"mccf.history.close": "Закрыть",
+	"mccf.history.empty": "История чата пока пуста.",
+	"mccf.history.source.self": "Я",
+	"mccf.history.source.visible": "Видимо",
+	"mccf.history.source.audible": "Слышимо",
+	"mccf.history.source.client_only": "Локальный перевод",
+
+	"key.mccf.open_history": "Открыть историю чата",
+
+	"mccf.tip.first_join": "[MCCF] MC Conversation Framework готов. Перейдите в Настройки → Управление → Назначение клавиш, чтобы назначить клавишу для MCCF и открыть экран конфигурации."
 }

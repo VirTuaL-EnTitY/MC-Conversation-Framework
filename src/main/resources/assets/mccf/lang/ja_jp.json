@@ -73,5 +73,21 @@
   "mccf.provider.mock": "モック（デバッグ用）",
   "mccf.provider.ollama": "Ollama（ローカル）",
   "mccf.provider.openai": "OpenAI",
-  "mccf.tip.first_join": "[MCCF] MC Conversation Framework の準備ができました。設定 → 操作 → キーバインド で MCCF のキーを割り当てて設定画面を開けるようにしてください。"
+  "mccf.config.tab.server": "サーバー設定",
+	"mccf.config.tab.local": "ローカル設定",
+	"mccf.config.activate": "デフォルトに設定",
+	"mccf.config.activate.current": "現在のデフォルト",
+	"mccf.config.activate_pending": "有効化待ちとしてマークしました。「保存」を押すと反映されます。",
+
+	"mccf.history.title": "チャット履歴",
+	"mccf.history.close": "閉じる",
+	"mccf.history.empty": "チャット履歴はまだありません。",
+	"mccf.history.source.self": "自分",
+	"mccf.history.source.visible": "可視",
+	"mccf.history.source.audible": "可聴",
+	"mccf.history.source.client_only": "ローカル翻訳",
+
+	"key.mccf.open_history": "チャット履歴を開く",
+
+	"mccf.tip.first_join": "[MCCF] MC Conversation Framework の準備ができました。設定 → 操作 → キーバインド で MCCF のキーを割り当てて設定画面を開けるようにしてください。"
 }

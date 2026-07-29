@@ -73,5 +73,21 @@
   "mccf.provider.mock": "Simulé (débogage)",
   "mccf.provider.ollama": "Ollama (local)",
   "mccf.provider.openai": "OpenAI",
-  "mccf.tip.first_join": "[MCCF] MC Conversation Framework est prêt. Allez dans Réglages → Contrôles → Assignation des touches pour assigner une touche à MCCF et ouvrir l'écran de configuration."
+  "mccf.config.tab.server": "Configuration serveur",
+	"mccf.config.tab.local": "Réglages locaux",
+	"mccf.config.activate": "Définir par défaut",
+	"mccf.config.activate.current": "Par défaut actuel",
+	"mccf.config.activate_pending": "Marqué pour activation. Appuyez sur « Enregistrer » pour appliquer.",
+
+	"mccf.history.title": "Historique du chat",
+	"mccf.history.close": "Fermer",
+	"mccf.history.empty": "Aucun historique de chat pour le moment.",
+	"mccf.history.source.self": "Moi",
+	"mccf.history.source.visible": "Visible",
+	"mccf.history.source.audible": "Audible",
+	"mccf.history.source.client_only": "Traduction locale",
+
+	"key.mccf.open_history": "Ouvrir l'historique du chat",
+
+	"mccf.tip.first_join": "[MCCF] MC Conversation Framework est prêt. Allez dans Réglages → Contrôles → Assignation des touches pour assigner une touche à MCCF et ouvrir l'écran de configuration."
 }

@@ -332,6 +332,24 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-07-29　0.5.1 修复：补齐配置界面布局改动后遗漏的翻译键
+
+0.5.0 的配置界面改版（标签页布局 + 聊天历史记录界面 + "设为默认"按钮）新增了
+13 个 `Text.translatable()` 调用，但对应语言键没有同步补进 lang 文件，导致
+所有 9 种语言下这些位置都显示为原始键名（如 `mccf.config.tab.server`）。
+
+补齐的键（全部 9 种语言 en_us/zh_cn/zh_tw/ja_jp/ko_kr/es_es/fr_fr/de_de/ru_ru）：
+
+| 键 | 用途 |
+|----|------|
+| `mccf.config.tab.server` / `.local` | 顶部标签页"服务端配置"/"本地设置" |
+| `mccf.config.activate` / `.activate.current` / `.activate_pending` | "设为默认"按钮的三种状态文字 |
+| `mccf.history.title` / `.close` / `.empty` | 聊天历史记录界面的标题/关闭按钮/空列表提示 |
+| `mccf.history.source.self` / `.visible` / `.audible` / `.client_only` | 历史记录每行的来源标签 |
+| `key.mccf.open_history` | 打开聊天历史记录的按键绑定名称 |
+
+版本号 `0.5.0` → `0.5.1`（patch：纯 lang 文件补漏，不改代码逻辑）。
+
 ### 2026-07-29　0.5.0 修复：说话者收不到自己消息的回显 + Mock Provider 醒目警告 + 新增聊天历史记录
 
 本轮改动响应用户两类反馈：(1) 纯客户端模式默认 Provider 是 Mock（占位符），

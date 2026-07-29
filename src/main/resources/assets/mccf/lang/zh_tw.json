@@ -73,5 +73,21 @@
   "mccf.provider.mock": "模擬提供者（除錯用）",
   "mccf.provider.ollama": "Ollama（本機部署）",
   "mccf.provider.openai": "OpenAI",
-  "mccf.tip.first_join": "[MCCF] MC 交流框架已就緒。前往 設定 → 控制 → 按鍵綁定 為 MCCF 綁定一個按鍵以開啟設定介面。"
+  "mccf.config.tab.server": "伺服器設定",
+	"mccf.config.tab.local": "本地設定",
+	"mccf.config.activate": "設為預設",
+	"mccf.config.activate.current": "目前預設",
+	"mccf.config.activate_pending": "已標記為待啟用，點「儲存」後生效。",
+
+	"mccf.history.title": "聊天歷史記錄",
+	"mccf.history.close": "關閉",
+	"mccf.history.empty": "暫無聊天歷史記錄。",
+	"mccf.history.source.self": "我",
+	"mccf.history.source.visible": "可見",
+	"mccf.history.source.audible": "可聽",
+	"mccf.history.source.client_only": "本地翻譯",
+
+	"key.mccf.open_history": "開啟聊天歷史記錄",
+
+	"mccf.tip.first_join": "[MCCF] MC 交流框架已就緒。前往 設定 → 控制 → 按鍵綁定 為 MCCF 綁定一個按鍵以開啟設定介面。"
 }

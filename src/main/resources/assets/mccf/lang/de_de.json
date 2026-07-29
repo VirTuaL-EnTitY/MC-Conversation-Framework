@@ -73,5 +73,21 @@
   "mccf.provider.mock": "Mock (Debug)",
   "mccf.provider.ollama": "Ollama (lokal)",
   "mccf.provider.openai": "OpenAI",
-  "mccf.tip.first_join": "[MCCF] MC Conversation Framework ist bereit. Gehe zu Einstellungen → Steuerung → Tastenbelegung, um eine Taste für MCCF zuzuweisen und den Konfigurationsbildschirm zu öffnen."
+  "mccf.config.tab.server": "Server-Konfiguration",
+	"mccf.config.tab.local": "Lokale Einstellungen",
+	"mccf.config.activate": "Als Standard setzen",
+	"mccf.config.activate.current": "Aktueller Standard",
+	"mccf.config.activate_pending": "Zur Aktivierung markiert. «Speichern» drücken zum Anwenden.",
+
+	"mccf.history.title": "Chat-Verlauf",
+	"mccf.history.close": "Schließen",
+	"mccf.history.empty": "Noch kein Chat-Verlauf.",
+	"mccf.history.source.self": "Ich",
+	"mccf.history.source.visible": "Sichtbar",
+	"mccf.history.source.audible": "Hörbar",
+	"mccf.history.source.client_only": "Lokale Übersetzung",
+
+	"key.mccf.open_history": "Chat-Verlauf öffnen",
+
+	"mccf.tip.first_join": "[MCCF] MC Conversation Framework ist bereit. Gehe zu Einstellungen → Steuerung → Tastenbelegung, um eine Taste für MCCF zuzuweisen und den Konfigurationsbildschirm zu öffnen."
 }
