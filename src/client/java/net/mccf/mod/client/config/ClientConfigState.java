@@ -32,6 +32,11 @@ public class ClientConfigState {
 
 	public boolean canEdit = false;
 	public String activeProvider = "mock";
+	/**
+	 * UI 中“待启用”的 Provider：当玩家在服务端面板点击“保存并启用”时写入此字段；
+	 * 收到服务端快照后由 applySnapshot 重置为服务端确认值。
+	 */
+	public String pendingActiveProvider = "mock";
 	public final Map<String, ClientProviderConfig> providers = new LinkedHashMap<>();
 
 	/** 是否已经从服务端收到过至少一次快照（用于 Screen 判断是否还在等待数据）。 */
@@ -52,8 +57,6 @@ public class ClientConfigState {
 
 		this.canEdit = root.has("canEdit") && root.get("canEdit").getAsBoolean();
 		this.activeProvider = root.has("activeProvider") ? root.get("activeProvider").getAsString() : "mock";
-		// 每次收到服务端确认的快照，"正在查看"的 Provider 回到与"生效中"一致——
-		// 避免玩家上一次编辑到一半、还没保存的选择被误当成新快照的一部分展示。
 		this.pendingActiveProvider = this.activeProvider;
 
 		providers.clear();
@@ -86,15 +89,6 @@ public class ClientConfigState {
 	}
 
 	/**
-	 * 待保存的 Provider 切换目标。与 {@link #activeProvider}（服务端已确认生效的值）
-	 * 分开：新版配置界面里，点击左侧 Provider 列表只切换"当前查看/编辑哪个 Provider
-	 * 的设置"，不等于立即启用——需要点保存按钮，这个值才会被写入 activeProvider 并
-	 * 提交给服务端。默认等于 activeProvider（刚打开界面/收到快照时，"正在看的"就是
-	 * "生效中的"）。
-	 */
-	public String pendingActiveProvider = "mock";
-
-	/**
 	 * 构造提交给服务端的 JSON——只包含当前内存里的编辑结果。
 	 *
 	 * endpoint 字段的发送逻辑采用三态（见 {@link ClientProviderConfig.EndpointAction}）：
@@ -105,9 +99,7 @@ public class ClientConfigState {
 	 */
 	public String buildUpdateJson() {
 		JsonObject root = new JsonObject();
-		// 提交的是玩家在列表里选中、点了保存的目标（pendingActiveProvider），
-		// 不是上一次服务端确认的 activeProvider——这正是"点保存才生效"的落点。
-		root.addProperty("activeProvider", pendingActiveProvider);
+		root.addProperty("activeProvider", pendingActiveProvider == null ? activeProvider : pendingActiveProvider);
 
 		JsonObject providersJson = new JsonObject();
 		for (Map.Entry<String, ClientProviderConfig> entry : providers.entrySet()) {

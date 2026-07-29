@@ -48,6 +48,7 @@ import net.minecraft.util.Formatting;
 public class MCCFClient implements ClientModInitializer {
 
 	private static KeyBinding openConfigKey;
+	private static KeyBinding openHistoryKey;
 
 	/**
 	 * 首次启动提示是否已经发过。整个客户端生命周期只提示一次——不随换服务器重置，
@@ -74,7 +75,33 @@ public class MCCFClient implements ClientModInitializer {
 
 		ClientPlayNetworking.registerGlobalReceiver(SubtitlePayload.ID, (payload, context) ->
 				context.client().execute(() -> {
-					if (ClientOnlyModeManager.isClientOnlyModeActive()) {
+					// 说话者是不是自己：SpatialChatHandler#dispatchSelfEcho 会给说话者本人发一份
+					// 原文回显包（speakerId == 自己的 UUID，displayMode 跟随本次发言时其他听众的
+					// 主导模式，见该方法注释）。这个分支必须最先判断——自己的回显不该走
+					// "仅译文一行"格式（那是给别人消息设计的），也不该被当成"我收到了自己说的话"
+					// 走 client-only 本地翻译流程。
+					boolean isSelf = context.client().player != null
+							&& payload.speakerId().equals(context.client().player.getUuid());
+
+					if (isSelf) {
+						// 自己发的消息：按服务端判定的主导模式展示，不翻译、不加任何标记——
+						// 玩家显然知道自己说了什么，这里只是让消息重新出现在自己的视野里
+						// （因为 SpatialChatHandler 拦截了原版广播，不补这一条自己就完全看不到）。
+						// VISIBLE（多数听众能看到我）走聊天框，AUDIBLE（多数听众只能听到）走
+						// 物品栏字幕——与 SpatialChatHandler#dispatchSelfEcho 的"跟随主导模式"
+						// 逻辑对应，让自己的回显形式与当前对话情境（面对面 / 隔墙喊话）一致。
+						if ("AUDIBLE".equals(payload.displayMode())) {
+							SubtitleManager.onReceive(payload);
+						} else {
+							addVisibleToChatHud(payload.speakerName(), payload.originalText());
+						}
+						net.mccf.mod.client.history.ChatHistoryManager.record(
+								new net.mccf.mod.client.history.ChatHistoryEntry(
+										payload.speakerId(), payload.speakerName(),
+										payload.originalText(), payload.originalText(),
+										net.mccf.mod.client.history.ChatHistoryEntry.Source.SELF,
+										System.currentTimeMillis()));
+					} else if (ClientOnlyModeManager.isClientOnlyModeActive()) {
 						// 退回方案：旧服务端不认识 ModePreferencePayload，依旧会拦截原版聊天改发
 						// SubtitlePayload。客户端收不到 CHAT 事件，ClientOnlyChatTranslator 的 CHAT
 						// 监听器不会触发，只能从 SubtitlePayload 里拿文本走本地翻译。
@@ -99,8 +126,20 @@ public class MCCFClient implements ClientModInitializer {
 						// 已翻好的译文，视觉上和正常聊天栏一致，最简洁。原文不重复显示（服务端
 						// 空间化已把原版广播拦截掉了，聊天栏里本就没有原文，由这里补一条译文）。
 						addVisibleToChatHud(payload.speakerName(), payload.translatedText());
+						net.mccf.mod.client.history.ChatHistoryManager.record(
+								new net.mccf.mod.client.history.ChatHistoryEntry(
+										payload.speakerId(), payload.speakerName(),
+										payload.originalText(), payload.translatedText(),
+										net.mccf.mod.client.history.ChatHistoryEntry.Source.VISIBLE,
+										System.currentTimeMillis()));
 					} else {
 						SubtitleManager.onReceive(payload);
+						net.mccf.mod.client.history.ChatHistoryManager.record(
+								new net.mccf.mod.client.history.ChatHistoryEntry(
+										payload.speakerId(), payload.speakerName(),
+										payload.originalText(), payload.translatedText(),
+										net.mccf.mod.client.history.ChatHistoryEntry.Source.AUDIBLE,
+										System.currentTimeMillis()));
 					}
 				}));
 
@@ -156,9 +195,10 @@ public class MCCFClient implements ClientModInitializer {
 			}
 		});
 
-		// 断开连接时清空本地字幕状态 + 重置模式检测结果，避免残留到下一局/下一个服务器。
+		// 断开连接时清空本地字幕状态 + 聊天历史 + 重置模式检测结果，避免残留到下一局/下一个服务器。
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
 			SubtitleManager.clear();
+			net.mccf.mod.client.history.ChatHistoryManager.clear();
 			ClientOnlyModeManager.onDisconnect();
 		});
 
@@ -171,10 +211,26 @@ public class MCCFClient implements ClientModInitializer {
 				"key.category.mccf.main"
 		));
 
+		// 独立按键呼出聊天历史记录界面。同样默认未绑定，需要玩家自己指定键位；
+		// 也可以从主配置界面的"聊天历史记录"按钮进入，两个入口等价，快捷键只是
+		// 省去打开配置界面这一步的便捷方式（对应用户"需要绑定快捷键或通过模组
+		// 设置进入"的诉求，两种方式都提供）。
+		openHistoryKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+				"key.mccf.open_history",
+				InputUtil.Type.KEYSYM,
+				InputUtil.UNKNOWN_KEY.getCode(),
+				"key.category.mccf.main"
+		));
+
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			while (openConfigKey.wasPressed()) {
 				if (client.currentScreen == null) {
 					client.setScreen(new MCCFConfigScreen(null));
+				}
+			}
+			while (openHistoryKey.wasPressed()) {
+				if (client.currentScreen == null) {
+					client.setScreen(new net.mccf.mod.client.config.ChatHistoryScreen(null));
 				}
 			}
 		});

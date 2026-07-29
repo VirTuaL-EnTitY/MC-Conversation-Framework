@@ -77,6 +77,9 @@ public class SpatialChatHandler {
 		}
 
 		// 1. 计算空间范围内的候选听众（同世界的所有其他在线玩家）。
+		// 说话者本人不参与距离/遮挡判定（自己跟自己永远"听得到"，判定没有意义），
+		// 但这不代表说话者应该收不到自己的回显——回显走独立分支（见下方 dispatchSelfEcho），
+		// 不占用 HearingResolver 的候选名单，也不影响 Conversation 的听众集合语义。
 		List<ServerPlayerEntity> candidates = server.getPlayerManager().getPlayerList().stream()
 				.filter(p -> p.getWorld() == sender.getWorld())
 				.filter(p -> !p.getUuid().equals(sender.getUuid()))
@@ -84,6 +87,14 @@ public class SpatialChatHandler {
 
 		HearingResolver.HearingResult hearing = hearingResolver.resolveAll(sender, candidates);
 		List<ServerPlayerEntity> allListeners = hearing.allListeners();
+
+		String speakerName = sender.getGameProfile().getName();
+
+		// 无论其他人能否听到，说话者本人始终应该在自己的客户端上看到自己刚说的话——
+		// 这跟原版聊天行为一致（原版广播里说话者也会收到自己发的消息），MCCF 接管分发后
+		// 不该丢失这个基本体验。回显不翻译（自己的话不需要翻译给自己看），displayMode
+		// 跟随"本次发言时，其他听众里哪种关系占多数"（见 dispatchSelfEcho 说明）。
+		dispatchSelfEcho(sender, speakerName, rawText, hearing);
 
 		if (allListeners.isEmpty()) {
 			// 没有任何人能听到——原则 2 的直接体现：这句话不会被任何人、
@@ -103,13 +114,41 @@ public class SpatialChatHandler {
 				.collect(Collectors.toList());
 
 		String sourceLang = PlayerLanguageRegistry.getLanguage(sender.getUuid());
-		String speakerName = sender.getGameProfile().getName();
 
 		// 4. 对每个听众：确定显示模式 -> 翻译 -> 发送字幕包。
 		dispatchTo(hearing.visible(), sender, speakerName, rawText, sourceLang, contextMessages, "VISIBLE");
 		dispatchTo(hearing.audibleOnly(), sender, speakerName, rawText, sourceLang, contextMessages, "AUDIBLE");
 
 		return false;
+	}
+
+	/**
+	 * 给说话者本人发一份"自己说的话"的回显包，不经过翻译（自己的话不需要翻译给自己看）。
+	 *
+	 * 为什么复用 SubtitlePayload 而不是新建一个包类型：字段完全够用——originalText 和
+	 * translatedText 都填原文即可，客户端不需要区分"这是回显"还是"这是真的同语言翻译结果"，
+	 * 因为无论哪种情况客户端的处理方式都一样（显示原文）。复用能减少一次
+	 * PayloadTypeRegistry 注册和一处客户端分支，维护成本更低。
+	 *
+	 * displayMode 的选择——"跟随主导模式"：说话者本人对自己没有距离/遮挡概念（自己
+	 * 永远在自己身边），没法直接复用 HearingResolver 的判定。改为统计本次发言时，
+	 * 其他听众里 VISIBLE 和 AUDIBLE 两档各有多少人，人数多的一档即为"主导模式"，
+	 * 自己的回显跟随这个主导模式展示——多数人能看到我时，我自己也理应用聊天框看到
+	 * 自己说的话（沉浸感一致：大家都在近处对话）；多数人只能听到听不到看到我时
+	 * （比如隔墙/远距离喊话），自己的回显也降级成物品栏字幕，呼应"这是一句喊出去的话
+	 * 而不是面对面聊天"的情境。没有任何听众时（allListeners 为空）默认 VISIBLE——
+	 * 聊天框比一闪而过的字幕更保险，避免独自一人说话时消息被错过。
+	 */
+	private void dispatchSelfEcho(ServerPlayerEntity sender, String speakerName, String rawText,
+			HearingResolver.HearingResult hearing) {
+		if (sender.networkHandler == null) return;
+		String displayMode = hearing.visible().size() >= hearing.audibleOnly().size() ? "VISIBLE" : "AUDIBLE";
+		SubtitlePayload echo = new SubtitlePayload(sender.getUuid(), speakerName, rawText, rawText, displayMode);
+		sender.getServer().execute(() -> {
+			if (sender.networkHandler != null) {
+				ServerPlayNetworking.send(sender, echo);
+			}
+		});
 	}
 
 	private void dispatchTo(List<ServerPlayerEntity> listeners, ServerPlayerEntity sender, String speakerName,

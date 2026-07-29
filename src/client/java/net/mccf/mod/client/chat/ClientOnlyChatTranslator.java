@@ -74,7 +74,16 @@ public final class ClientOnlyChatTranslator {
 		// 自己发的消息不翻译——玩家显然已经知道自己说了什么。
 		// 退回方案路径下，SubtitlePayload 的 speakerId 也可能是自己（旧服务端不知道
 		// 我是 client-only，可能给我发我自己说话的字幕），同样需要跳过。
+		// 跳过翻译前仍记入历史（Source.SELF）——纯客户端模式下原版聊天广播本来就正常
+		// 显示自己发的消息（这条路径没有 SpatialChatHandler 拦截），但历史界面需要完整
+		// 记录，所以这里补一条，跟 MCCFClient 里服务端空间化模式下自己回显的记录逻辑对齐。
 		if (senderUuid != null && senderUuid.equals(client.player.getUuid().toString())) {
+			net.mccf.mod.client.history.ChatHistoryManager.record(
+					new net.mccf.mod.client.history.ChatHistoryEntry(
+							client.player.getUuid(), client.player.getGameProfile().getName(),
+							sourceText, sourceText,
+							net.mccf.mod.client.history.ChatHistoryEntry.Source.SELF,
+							System.currentTimeMillis()));
 			return;
 		}
 
@@ -95,6 +104,15 @@ public final class ClientOnlyChatTranslator {
 			if (translated == null || translated.isBlank() || translated.equals(sourceText)) return;
 			client.inGameHud.getChatHud().addMessage(
 					Text.literal("⇄ " + translated).formatted(net.minecraft.util.Formatting.GRAY));
+			// speakerUuid 在纯客户端模式下无法可靠拿到说话者的稳定 UUID 展示名（这条路径
+			// 没有服务端 speakerName 字段，只有聊天原文），历史记录里 speakerName 留空，
+			// 界面按"未知发言者"或直接不显示名字处理。
+			net.mccf.mod.client.history.ChatHistoryManager.record(
+					new net.mccf.mod.client.history.ChatHistoryEntry(
+							senderUuid != null ? java.util.UUID.fromString(senderUuid) : new java.util.UUID(0, 0),
+							"", sourceText, translated,
+							net.mccf.mod.client.history.ChatHistoryEntry.Source.CLIENT_ONLY,
+							System.currentTimeMillis()));
 		})).exceptionally(ex -> {
 			// 纯客户端模式下翻译失败（比如没配 API Key）只记日志，不刷屏聊天栏——
 			// 玩家可以用配置界面的"导出日志"按钮排查，不需要每条消息都弹一次错误。

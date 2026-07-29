@@ -332,38 +332,77 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
-### 2026-07-29　0.4.1 修复：配置界面一打开就崩 Rendering screen（serverPanel is null）
+### 2026-07-29　0.5.0 修复：说话者收不到自己消息的回显 + Mock Provider 醒目警告 + 新增聊天历史记录
 
-**问题**：按按键绑定呼出 `MCCFConfigScreen`（或经 ModMenu 打开）后立即崩溃，崩溃
-报告为 `NullPointerException: Cannot invoke "...ServerConfigPanel.render(...)"
-because "this.serverPanel" is null`，发生在 `MCCFConfigScreen.render()`。
+本轮改动响应用户两类反馈：(1) 纯客户端模式默认 Provider 是 Mock（占位符），
+玩家容易误以为翻译没生效；(2) VISIBLE 降级为聊天框后，说话者自己看不到自己
+发的消息（AUDIBLE 情况同理）。
 
-**根因**：经典的 Java "构造器里调用可重写方法"陷阱。`ProviderConfigPanel` 的构造器
-里调用了 `this.selectedProvider = initialSelectedProvider()`，而 `initialSelectedProvider()`
-是 abstract、由子类实现——子类实现里访问的是子类自己的实例字段
-（`ServerConfigPanel.state`、`LocalConfigPanel.config`，二者都是字段初始化器赋值）。
-Java 的实例字段初始化器在**父类构造器返回之后**才执行，因此父类构造器回调子类
-override 时 `state` / `config` 仍是默认值 `null`，直接 NPE。
+**1. 说话者自己消息回显修复（核心问题）**
+- **问题**：`SpatialChatHandler` 计算候选听众时会排除说话者本人
+  （`!p.getUuid().equals(sender.getUuid())`），且拦截了原版聊天广播，导致
+  说话者永远收不到自己刚发消息的任何回显——无论 VISIBLE（聊天框）还是
+  AUDIBLE（物品栏字幕），自己都看不到自己说了什么。
+- **修复**：新增 `SpatialChatHandler#dispatchSelfEcho`，独立于候选听众列表，
+  始终给说话者本人发一份不经过翻译的原文回显（复用 `SubtitlePayload`，
+  `originalText`/`translatedText` 均为原文）。`displayMode` 跟随"本次发言时
+  其他听众的主导模式"：VISIBLE 听众更多时回显走聊天框，AUDIBLE 听众更多时
+  回显走物品栏字幕，没有任何听众时默认 VISIBLE（聊天框更保险，不会一闪而过）。
+- 客户端 `MCCFClient` 新增 `isSelf` 判定分支（`payload.speakerId()` 等于本机
+  玩家 UUID），按 `displayMode` 分流到 `addVisibleToChatHud`（聊天框，原版
+  `<名字> 原文` 格式）或 `SubtitleManager.onReceive`（物品栏字幕）。
+- 涉及文件：`SpatialChatHandler.java`、`MCCFClient.java`。
 
-该 NPE 发生在 `MCCFConfigScreen.init()` 的 `new ServerConfigPanel(...)`（构造期
-`super()` 内），赋值未完成、`serverPanel` 保持 `null`；`init()` 抛出的异常被上层
-吞掉，界面仍被设为当前 Screen，下一帧 `render()` 解引用 `serverPanel` 时硬崩。
-`LocalConfigPanel` 存在同样的 bug，只是 `ServerConfigPanel`（第 79 行）先崩。
+**2. Mock Provider 醒目警告**
+- Mock Provider 只是给原文加 `[语言代码]` 前缀的占位符，不调用任何真实翻译
+  API——这是纯客户端模式和服务端配置的**默认值**，玩家装完模组直接体验很
+  容易把这个占位效果误认成"翻译没生效"（真实反馈案例）。
+- 两个配置界面（`MCCFConfigScreen`、`ClientOnlyConfigScreen`）在选中 Mock
+  Provider 时，于 Provider 说明文字下方追加一行红色警告
+  （`mccf.config.mock_warning`），不进聊天栏、不做强制弹窗，只在配置界面内
+  静态提示。为容纳这行新警告，两个界面的 `providerButton`→`apiKeyField`
+  间距从 12px（`ClientOnlyConfigScreen`）/ 0px 额外间距（`MCCFConfigScreen`）
+  统一扩大到 24px，避免文字与输入框重叠。
+- 涉及文件：`MCCFConfigScreen.java`、`ClientOnlyConfigScreen.java`，9 种语言
+  文件新增 `mccf.config.mock_warning` 键。
 
-旁证：`ModelSelectionScreen.render()` 同样直接解引用在 `init()` 里赋值的
-`listWidget` 且不做 null 检查，却从不崩溃——说明本代码库 / MC 1.21.1 下 `init()`
-确实在 `render()` 之前同步执行；因此 `serverPanel` 为 null 只能是 `init()` 抛异常
-未完成赋值所致，而非"render 跑在 init 之前"的时序问题。
+**3. 新增聊天历史记录界面**
+- 新增 `ChatHistoryManager`（客户端内存环形缓冲区，容量 500 条，不落盘，
+  断线清空）与 `ChatHistoryEntry`（记录说话者、原文、译文、来源分类
+  SELF/VISIBLE/AUDIBLE/CLIENT_ONLY、时间戳）。
+- 三个数据入口都接入历史记录写入：`MCCFClient` 的 `SubtitlePayload` 接收器
+  （自己回显 SELF / VISIBLE / AUDIBLE 三分支）、`ClientOnlyChatTranslator`
+  （纯客户端模式下自己发的消息 SELF、翻译完成后的 CLIENT_ONLY）。
+- 新增 `ChatHistoryScreen`：只读、可滚动的历史记录列表，按时间倒序展示。
+  受限于 1.21.1 的 `AlwaysSelectedEntryListWidget` 行高固定（不支持
+  `itemHeight` 自定义，该参数 1.21.8 才引入），每条记录压缩成单行
+  `[来源] 说话者: 原文 ⇄ 译文`，右侧对齐时间戳，超宽裁剪加省略号。
+- 两个入口：主配置界面新增"聊天历史记录"按钮（`mccf.config.chat_history`），
+  以及独立按键绑定 `key.mccf.open_history`（默认未绑定，同 `openConfigKey`
+  的约定，需要玩家自己在按键设置里指定）。两个入口都不受 op 权限限制——
+  历史记录是纯本地展示数据。
+- 涉及新文件：`ChatHistoryEntry.java`、`ChatHistoryManager.java`、
+  `ChatHistoryScreen.java`。涉及修改：`MCCFClient.java`（接入写入 + 按键绑定）、
+  `ClientOnlyChatTranslator.java`（接入写入）、`MCCFConfigScreen.java`
+  （新增入口按钮），9 种语言文件新增 `mccf.config.chat_history` /
+  `mccf.history.*` / `key.mccf.open_history` 键。
 
-**修复**：把 `initialSelectedProvider()` 的调用从 `ProviderConfigPanel` 构造器移到
-`init()` 方法开头。此时子类构造已全部完成、`state` / `config` 字段已初始化，override
-能正常返回值。`selectedProvider` 在"构造完成到 `init()`"之间短暂为 `null`，但该窗口
-内无任何代码读取它（`MCCFConfigScreen.init()` 是构造完立刻 `init()`），故安全。
+**改动文件汇总**：`SpatialChatHandler.java`、`MCCFClient.java`、
+`ClientOnlyChatTranslator.java`、`MCCFConfigScreen.java`、
+`ClientOnlyConfigScreen.java`、新增 `ChatHistoryEntry.java` /
+`ChatHistoryManager.java` / `ChatHistoryScreen.java`，9 种语言文件，
+`gradle.properties`（`0.4.0` → `0.5.0`）。
 
-**改动文件**：`ProviderConfigPanel.java`（构造器移除 override 调用 + 注释说明陷阱，
-`init()` 里 deferred 赋值）、`gradle.properties`（`0.4.0` → `0.4.1`）。
+版本号 `0.4.0` → `0.5.0`（按 9.1 规则升 minor：新增网络分发分支
+`dispatchSelfEcho`、新增客户端界面与按键绑定，均为功能性新增/修复，
+无破坏性变更）。
 
-版本号 `0.4.0` → `0.4.1`（按 9.1 规则升 patch：bug 修复，不改功能/构建）。
+**已知限制**：
+- 历史记录不落盘，重进游戏/断线重连后清空——这是有意为之的取舍（见
+  `ChatHistoryManager` 类注释），不是遗漏。
+- 纯客户端模式（`ClientOnlyChatTranslator`）下的 CLIENT_ONLY 历史记录条目
+  没有可靠的 `speakerName`（这条路径没有服务端下发的说话者展示名，只有聊天
+  原文），历史界面对这类条目显示 `?` 占位。
 
 ### 2026-07-29　0.4.0 修复：VISIBLE 模式字幕不显示，临时改回聊天框
 
