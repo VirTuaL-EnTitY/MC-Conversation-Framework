@@ -32,6 +32,8 @@ public abstract class ProviderConfigPanel {
 
 	protected final Screen screen;
 	protected final int left, top, right, bottom;
+	/** 屏幕中心 Y 坐标——提示文字统一在此处下方绘制。 */
+	protected final int screenCenterY;
 
 	protected ProviderListWidget listWidget;
 	/** 当前"选中查看"的 Provider——不等于已启用的 Provider，见类注释。 */
@@ -42,12 +44,13 @@ public abstract class ProviderConfigPanel {
 	/** 当前标签页是否可见——子类计算字段 active 时应该与"字段本身是否可编辑"做 AND。 */
 	protected boolean tabVisible = true;
 
-	protected ProviderConfigPanel(Screen screen, int left, int top, int right, int bottom) {
+	protected ProviderConfigPanel(Screen screen, int left, int top, int right, int bottom, int screenCenterY) {
 		this.screen = screen;
 		this.left = left;
 		this.top = top;
 		this.right = right;
 		this.bottom = bottom;
+		this.screenCenterY = screenCenterY;
 		// 故意不在这里调用 initialSelectedProvider()：它是 abstract、由子类实现，而子类
 		// 实现里访问的是子类自己的实例字段（ServerConfigPanel.state、LocalConfigPanel.config）。
 		// Java 的实例字段初始化器在"父类构造器返回之后、子类构造器体之前"才执行——也就是说
@@ -77,14 +80,10 @@ public abstract class ProviderConfigPanel {
 	 * 创建左侧列表 + 触发子类创建右侧控件。
 	 *
 	 * @param addChild 挂载普通可绘制控件（通常是 {@code Screen::addDrawableChild}）。
-	 * @param addSelectableChild 挂载列表这类"自己管理绘制、只需要参与输入路由"的控件
-	 *        （通常是 {@code Screen::addSelectableChild}）。Screen.addSelectableChild
-	 *        是 protected 方法，本类不是 Screen 的子类拿不到，只能由持有 Screen 的
-	 *        调用方（MCCFConfigScreen.init()）转交一个方法引用进来——这与
-	 *        ModelSelectionScreen 里"列表用 addSelectableChild、渲染手动调用"的
-	 *        既有模式保持一致，只是这里 Screen 和列表分属两个类，需要多一层转交。
+	 *        左侧 Provider 列表现在是一个 {@link ClickableWidget}，随 Screen 一起
+	 *        渲染和接收输入，不再使用 addSelectableChild + 手动 render 的模式。
 	 */
-	public void init(Consumer<ClickableWidget> addChild, Consumer<ProviderListWidget> addSelectableChild) {
+	public void init(Consumer<ClickableWidget> addChild) {
 		ownedWidgets.clear();
 
 		// 在这里（而非构造器里）确定初始选中的 Provider：此刻子类构造已全部完成，
@@ -95,13 +94,10 @@ public abstract class ProviderConfigPanel {
 		// 代码读取它（MCCFConfigScreen.init() 是构造完立刻 init()），所以安全。
 		this.selectedProvider = initialSelectedProvider();
 
-		int listTop = top;
-		int listBottom = bottom;
-		listWidget = new ProviderListWidget(MinecraftClient.getInstance(),
-				LIST_WIDTH, listBottom - listTop, listTop, listBottom,
+		listWidget = new ProviderListWidget(left, top, LIST_WIDTH, bottom - top,
 				ClientConfigState.PROVIDER_IDS, selectedProvider, this::activeProviderId,
 				this::selectProvider);
-		addSelectableChild.accept(listWidget);
+		addChild.accept(listWidget);
 
 		int panelLeft = left + LIST_WIDTH + GUTTER;
 		buildRightPanel(panelLeft, top, right, bottom);
@@ -144,9 +140,8 @@ public abstract class ProviderConfigPanel {
 	protected abstract void onTabVisibilityChanged();
 
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-		if (listWidget != null) {
-			listWidget.render(context, mouseX, mouseY, delta);
-		}
+		// 左侧列表 widget 已通过 addChild 加入 Screen，由 Screen 统一渲染，
+		// 这里只需绘制右侧面板自身的额外内容。
 		renderExtra(context, mouseX, mouseY, delta);
 	}
 

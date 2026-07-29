@@ -76,11 +76,11 @@ public class MCCFConfigScreen extends Screen {
 				.build();
 		addDrawableChild(localTabButton);
 
-		serverPanel = new ServerConfigPanel(this, contentLeft, contentTop, contentRight, contentBottom);
-		serverPanel.init(this::addDrawableChild, this::addSelectableChild);
+		serverPanel = new ServerConfigPanel(this, contentLeft, contentTop, contentRight, contentBottom, this.height / 2);
+		serverPanel.init(this::addDrawableChild);
 
-		localPanel = new LocalConfigPanel(this, contentLeft, contentTop, contentRight, contentBottom);
-		localPanel.init(this::addDrawableChild, this::addSelectableChild);
+		localPanel = new LocalConfigPanel(this, contentLeft, contentTop, contentRight, contentBottom, this.height / 2);
+		localPanel.init(this::addDrawableChild);
 
 		applyTabVisibility();
 	}

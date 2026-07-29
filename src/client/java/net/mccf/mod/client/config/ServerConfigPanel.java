@@ -44,8 +44,8 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	/** 玩家是否点了"清除密钥"按钮，语义同旧版 MCCFConfigScreen。 */
 	private boolean userClearedApiKey = false;
 
-	public ServerConfigPanel(Screen screen, int left, int top, int right, int bottom) {
-		super(screen, left, top, right, bottom);
+	public ServerConfigPanel(Screen screen, int left, int top, int right, int bottom, int screenCenterY) {
+		super(screen, left, top, right, bottom, screenCenterY);
 		// 打开界面时向服务端请求最新快照。canSend 检查避免玩家尚未进入任何世界/
 		// 连接任何服务器时调用 send() 抛异常导致崩溃（这是旧版就有的已知坑）。
 		if (ClientPlayNetworking.canSend(RequestConfigPayload.ID)) {
@@ -67,7 +67,9 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	protected void buildRightPanel(int panelLeft, int panelTop, int panelRight, int panelBottom) {
 		int panelWidth = panelRight - panelLeft;
 		int fieldHeight = 20;
-		int spacing = 28;
+		// 动态间距：6 行控件（高 20）+ 5 个间距，默认 36px 宽松行距，
+		// 在较小屏幕上自动压缩，避免按钮跑出屏幕。
+		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 120) / 5));
 		int y = panelTop;
 
 		// "保存并启用"：把当前查看的 Provider 设为待启用目标，随下一次保存提交。
@@ -112,7 +114,7 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 						Text.translatable("mccf.config.fetch_models"), button -> onFetchModels())
 				.dimensions(panelLeft + halfWidth + 8, y, halfWidth, fieldHeight)
 				.build());
-		y += spacing + 10;
+		y += spacing;
 
 		int thirdWidth = (panelWidth - 8) / 3;
 		saveButton = own(ButtonWidget.builder(Text.translatable("mccf.config.save"), button -> onSave())
@@ -308,21 +310,20 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	protected void renderExtra(DrawContext context, int mouseX, int mouseY, float delta) {
 		if (!tabVisible) return;
 		var textRenderer = MinecraftClient.getInstance().textRenderer;
-		int panelLeft = left + LIST_WIDTH + GUTTER;
-		int panelWidth = right - panelLeft;
-		int centerX = panelLeft + panelWidth / 2;
+		int centerX = screen.width / 2;
 
 		Text providerTitle = Text.translatable(ClientConfigState.providerNameKey(selectedProvider));
 		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, top - 14, Colors.WHITE);
 
+		int screenBottom = screen.height - 20;
 		Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
-		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, bottom - 30, Colors.LIGHT_GRAY);
+		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, screenBottom - 30, Colors.LIGHT_GRAY);
 
 		if (!state.hasReceivedSnapshot) {
 			context.drawCenteredTextWithShadow(textRenderer, Text.translatable("mccf.config.loading"),
-					centerX, bottom - 16, Colors.LIGHT_GRAY);
+					centerX, screenBottom - 16, Colors.LIGHT_GRAY);
 		} else if (!statusMessage.getString().isEmpty()) {
-			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, bottom - 16, statusColor);
+			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, screenBottom - 16, statusColor);
 		}
 	}
 }

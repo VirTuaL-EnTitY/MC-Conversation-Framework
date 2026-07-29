@@ -51,8 +51,8 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 	/** 暂存的运行模式选择，点保存才落盘，语义同旧版 ClientOnlyConfigScreen。 */
 	private ClientOnlyModeManager.Override pendingOverride = null;
 
-	public LocalConfigPanel(Screen screen, int left, int top, int right, int bottom) {
-		super(screen, left, top, right, bottom);
+	public LocalConfigPanel(Screen screen, int left, int top, int right, int bottom, int screenCenterY) {
+		super(screen, left, top, right, bottom, screenCenterY);
 		this.pendingActiveProvider = config.activeProvider;
 	}
 
@@ -70,7 +70,9 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 	protected void buildRightPanel(int panelLeft, int panelTop, int panelRight, int panelBottom) {
 		int panelWidth = panelRight - panelLeft;
 		int fieldHeight = 20;
-		int spacing = 28;
+		// 动态间距：7 行控件（高 20）+ 6 个间距，默认 36px 宽松行距，
+		// 在较小屏幕上自动压缩，避免按钮跑出屏幕。
+		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 140) / 6));
 		int y = panelTop;
 
 		ClientOnlyModeManager.Override initialMode =
@@ -113,7 +115,7 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 				Text.translatable("mccf.config.endpoint")));
 		endpointField.setMaxLength(256);
 		endpointField.setPlaceholder(Text.translatable("mccf.config.endpoint.placeholder"));
-		y += spacing + 10;
+		y += spacing;
 
 		syncButton = own(ButtonWidget.builder(Text.translatable("mccf.localconfig.sync"), button -> onSync())
 				.dimensions(panelLeft, y, panelWidth, fieldHeight)
@@ -241,15 +243,14 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 	protected void renderExtra(DrawContext context, int mouseX, int mouseY, float delta) {
 		if (!tabVisible) return;
 		var textRenderer = MinecraftClient.getInstance().textRenderer;
-		int panelLeft = left + LIST_WIDTH + GUTTER;
-		int panelWidth = right - panelLeft;
-		int centerX = panelLeft + panelWidth / 2;
+		int centerX = screen.width / 2;
 
 		Text providerTitle = Text.translatable(ClientConfigState.providerNameKey(selectedProvider));
 		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, top - 14, Colors.WHITE);
 
+		int screenBottom = screen.height - 20;
 		Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
-		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, bottom - 58, Colors.LIGHT_GRAY);
+		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, screenBottom - 58, Colors.LIGHT_GRAY);
 
 		// 警告：选了"强制服务器模式"但服务器没装 MCCF 时翻译会完全失效。
 		ClientOnlyModeManager.Override effectiveOverride =
@@ -257,9 +258,9 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		if (effectiveOverride == ClientOnlyModeManager.Override.FORCE_SERVER_MODE
 				&& !ClientOnlyModeManager.isServerDetected()) {
 			String warningText = Text.translatable("mccf.localconfig.warn_force_server_no_mod").getString();
-			int wrapWidth = panelWidth;
-			int warningX = panelLeft;
-			int warningY = bottom - 46;
+			int wrapWidth = screen.width - 40;
+			int warningX = centerX - wrapWidth / 2;
+			int warningY = screenBottom - 46;
 			String remaining = warningText;
 			while (!remaining.isEmpty()) {
 				String trimmed = textRenderer.trimToWidth(remaining, wrapWidth);
@@ -275,10 +276,10 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 
 		Text detectedLine = Text.translatable(
 				ClientOnlyModeManager.isServerDetected() ? "mccf.localconfig.detected_yes" : "mccf.localconfig.detected_no");
-		context.drawCenteredTextWithShadow(textRenderer, detectedLine, centerX, bottom - 30, Colors.LIGHT_GRAY);
+		context.drawCenteredTextWithShadow(textRenderer, detectedLine, centerX, screenBottom - 30, Colors.LIGHT_GRAY);
 
 		if (!statusMessage.getString().isEmpty()) {
-			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, bottom - 16, statusColor);
+			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, screenBottom - 16, statusColor);
 		}
 	}
 }
