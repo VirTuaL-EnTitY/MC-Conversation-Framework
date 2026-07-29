@@ -86,6 +86,19 @@ public class MCCFClient implements ClientModInitializer {
 						if (sourceText != null && !sourceText.isBlank()) {
 							ClientOnlyChatTranslator.translateAndAppend(sourceText, payload.speakerId().toString());
 						}
+					} else if ("VISIBLE".equals(payload.displayMode())) {
+						// VISIBLE（看得到说话者）临时改走聊天框：WorldSubtitleRenderer 的世界空间
+						// 字幕在"能看见对方"时仍不显示（根因尚未定位，见 WorldSubtitleRenderer 类注释
+						// 与 README "已知问题"），故暂时把这类消息降级回聊天栏。服务端已按距离/视线
+						// 把听众拆成 visible / audibleOnly 两批，只有 visible 的人会收到 VISIBLE 包，
+						// 因此聊天栏里天然只出现"我看得见的那几位"说的话——满足"聊天框内容只能是我
+						// 看到的这几位"的需求。AUDIBLE（看不到）依旧走 SubtitleManager → 物品栏上方
+						// 字幕，保持原时长（2.5~8s）不变。
+						//
+						// 显示格式选"仅译文一行"：原版聊天是 <Steve> 文本，这里把文本替换成服务端
+						// 已翻好的译文，视觉上和正常聊天栏一致，最简洁。原文不重复显示（服务端
+						// 空间化已把原版广播拦截掉了，聊天栏里本就没有原文，由这里补一条译文）。
+						addVisibleToChatHud(payload.speakerName(), payload.translatedText());
 					} else {
 						SubtitleManager.onReceive(payload);
 					}
@@ -172,5 +185,23 @@ public class MCCFClient implements ClientModInitializer {
 		// 与我们在 fabric.mod.json / lang 文件里使用的格式一致，无需转换。
 		String language = client.options.language;
 		return (language == null || language.isBlank()) ? "en_us" : language;
+	}
+
+	/**
+	 * 把一条 VISIBLE 消息以"仅译文一行"格式追加进原版聊天栏，视觉上和正常聊天
+	 * (<Steve> 文本) 一致，只是文本已是服务端翻好的译文。
+	 *
+	 * 为什么不复用 ClientOnlyChatTranslator 的 "⇄ 译文" 两行格式：那是纯客户端模式
+	 * 下的设计——那里原文会照常出现在聊天栏，译文需要靠 "⇄" 前缀和灰色区分以示
+	 * "这是翻译"。而服务端空间化模式下原版广播已被拦截、聊天栏里没有原文，再叠
+	 * 一行 "⇄" 会显得多余；按用户要求选最简洁的"仅译文一行"，和正常聊天无视觉差。
+	 */
+	private static void addVisibleToChatHud(String speakerName, String translatedText) {
+		MinecraftClient client = MinecraftClient.getInstance();
+		if (client.player == null || client.inGameHud == null) return;
+		if (translatedText == null || translatedText.isBlank()) return;
+
+		Text line = Text.literal("<" + speakerName + "> ").append(Text.literal(translatedText));
+		client.inGameHud.getChatHud().addMessage(line);
 	}
 }

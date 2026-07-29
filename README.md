@@ -316,6 +316,11 @@ src/client/java/net/mccf/mod/client/
   （腰部高度，水平偏移），不再是早期版本的"头顶上方一点"。长文本支持自动
   换行，远距离时有距离衰减。如果后续想进一步做成基于屏幕投影坐标的贴身定位，
   World 渲染管线在新版本上不稳定，需要单独一轮谨慎处理。
+- **【已知 Bug / 0.4.0 临时绕开】** 上述"说话者旁边"的世界空间字幕在
+  `WorldSubtitleRenderer` 中实测**仍不显示**（早期 alpha 修复无效，根因未定位，
+  候选见"八、更新日志"0.4.0 条目）。0.4.0 起 VISIBLE 模式临时改走原版聊天框
+  （`<名字> 译文` 一行），AUDIBLE 模式不受影响。待根因定位修复后再考虑切回
+  世界空间字幕。
 - **纯客户端模式（`ClientOnlyChatTranslator`）用到的 `ClientReceiveMessageEvents.CHAT`
   事件签名**：此前 README 里标注为"凭印象写、未本地编译验证"的风险点，在
   1.21.1 上经本地编译验证**签名正确**（5 参数：`message, signedMessage, sender, params, receptionTimestamp`），
@@ -326,6 +331,41 @@ src/client/java/net/mccf/mod/client/
 ---
 
 ## 八、更新日志
+
+### 2026-07-29　0.4.0 修复：VISIBLE 模式字幕不显示，临时改回聊天框
+
+**问题**：能看见对方（VISIBLE 模式）时，字幕不会显示在玩家模型旁边。早期记录
+的"alpha 通道修复"（`0xFFFFFF` → `0xFFFFFFFF`）实测**无效**——字幕仍不显示，
+说明 alpha 不是（或不是唯一的）根因。WorldSubtitleRenderer 的世界空间渲染存在
+未定位的底层问题（候选根因见下），暂不具备运行环境实测确认。
+
+**临时方案**（本轮改动）：
+- VISIBLE 模式（看得到说话者）的消息**改走原版聊天框**，格式为 `<Steve> 译文`
+  （仅译文一行，翻译由服务端已完成）。因为服务端已按距离/视线把听众拆成
+  visible / audibleOnly 两批、只给看得到的人发 VISIBLE 包，所以聊天框里天然只
+  出现"我看得见的那几位"说的话——满足"聊天框内容只能是我看到的这几位"。
+- AUDIBLE 模式（看不到对方）**完全不变**：依旧走 `HotbarSubtitleRenderer`
+  在物品栏上方堆叠显示字幕，原时长（2.5s + 60ms/字符，上限 8s）保持不变，
+  对应用户"看不到的情况下还是按照原来的时间来"。
+- `WorldSubtitleRenderer.java` 代码**保留不删**，类 Javadoc 顶部诚实标注了
+  "当前不显示 + alpha 修复无效 + 根因未定位"及候选根因，待后续具备运行环境时
+  定位修复后再决定是否切回世界空间字幕。
+
+**WorldSubtitleRenderer 根因候选**（均未实测确认，按怀疑程度排序）：
+1. `findEntity` 按 UUID 在 `client.world.getPlayers()` 匹配说话者实体，若匹配失败
+   会直接跳过、什么都不画（理论上游程 UUID 应一致，但未实测过）。
+2. `WorldRenderEvents.AFTER_ENTITIES` 阶段的 `context.consumers()` 是世界渲染管线
+   的 Immediate，其 SEE_THROUGH 层缓冲可能在帧末统一 flush；若被其他渲染阶段提前
+   `end()` 或深度/混合状态异常，文字可能被画了但肉眼不可见。
+3. 负 Y 缩放 `matrices.scale(-scale,-scale,scale)` + `camera.getRotation()` 的
+   billboard 组合在某些视角下可能被背面剔除或被深度遮挡。
+
+**改动文件**：`MCCFClient.java`（VISIBLE 路由到聊天框 + 新增
+`addVisibleToChatHud`）、`WorldSubtitleRenderer.java`（类 Javadoc 标注根因候选）、
+`gradle.properties`（`0.3.2` → `0.4.0`）。
+
+版本号 `0.3.2` → `0.4.0`（按 9.1 规则升 minor：功能性行为变更，字幕渲染目标
+从世界空间改为聊天框）。
 
 ### 2026-07-29　0.3.2 新增 7 种语言本地化
 

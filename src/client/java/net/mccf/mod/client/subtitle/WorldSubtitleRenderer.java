@@ -17,6 +17,26 @@ import java.util.UUID;
  * 渲染 VISIBLE 模式字幕：显示在说话者模型旁边（靠近相机的一侧），采用与原版玩家名牌相同的
  * "billboard"（始终面向摄像机）绘制方式，随玩家移动实时跟随。
  *
+ * <b>当前状态（2026-07-29）：本渲染器实际不显示字幕，根因尚未定位。</b>
+ * 早期发现文字颜色用 0xFFFFFF（alpha=0 全透明）并改为 0xFFFFFFFF，但用户实测仍不显示——
+ * 说明 alpha 不是（或不是唯一的）根因。本类代码保留待根因定位后修复，<b>暂时</b>由
+ * MCCFClient 把 VISIBLE 包改路由到原版聊天栏（见 MCCFClient#addVisibleToChatHud），
+ * WorldSubtitleRenderer 因此自然拿不到 VISIBLE 字幕（SubtitleManager 不再存 VISIBLE），
+ * 走不到本类的渲染分支，避免在未修复时白白消耗每帧的查找/计算开销。
+ *
+ * 候选根因（按怀疑程度排序，均未在本地运行环境验证，待加 DEBUG 日志后实测确认）：
+ * <ol>
+ *   <li>{@link #findEntity} 按 UUID 在 client.world.getPlayers() 里匹配，若服务端 speakerId
+ *       与客户端该玩家的实体 UUID 不一致（理论上不应不一致，但未实测过），会直接 continue
+ *       跳过，表现为"什么都没画"。</li>
+ *   <li>AFTER_ENTITIES 阶段拿到的 context.consumers() 是世界渲染管线的 Immediate，
+ *       其 SEE_THROUGH 层缓冲可能在帧末才统一 flush；若被其他渲染阶段提前 end() 或
+ *       depth/blend 状态不对，文字可能被画了但肉眼不可见。</li>
+ *   <li>负 Y 缩放（matrices.scale(-scale,-scale,scale)）+ camera.getRotation() 组合下，
+ *       文字法线/朝向在某些视角下背面剔除或深度被遮挡（VISIBLE 判定有视线，理论上不该被
+ *       地形挡，但未排除）。</li>
+ * </ol>
+ *
  * 只管"把字幕画到世界空间里说话者模型旁边"这一件事，不管字幕的生命周期管理（由
  * SubtitleManager 负责）、不管 AUDIBLE 模式的 HUD 渲染（由 HotbarSubtitleRenderer 负责）。
  *
