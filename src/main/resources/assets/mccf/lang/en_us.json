@@ -73,5 +73,21 @@
   "mccf.provider.mock": "Mock (Debug)",
   "mccf.provider.ollama": "Ollama (Local)",
   "mccf.provider.openai": "OpenAI",
-  "mccf.tip.first_join": "[MCCF] MC Conversation Framework is ready. Go to Settings → Controls → Key Binds to bind a key for MCCF to open the config screen."
+  "mccf.config.tab.server": "Server Config",
+	"mccf.config.tab.local": "Local Settings",
+	"mccf.config.activate": "Set as Default",
+	"mccf.config.activate.current": "Current Default",
+	"mccf.config.activate_pending": "Marked for activation. Press \"Save\" to apply.",
+
+	"mccf.history.title": "Chat History",
+	"mccf.history.close": "Close",
+	"mccf.history.empty": "No chat history yet.",
+	"mccf.history.source.self": "Me",
+	"mccf.history.source.visible": "Visible",
+	"mccf.history.source.audible": "Audible",
+	"mccf.history.source.client_only": "Local",
+
+	"key.mccf.open_history": "Open Chat History",
+
+	"mccf.tip.first_join": "[MCCF] MC Conversation Framework is ready. Go to Settings → Controls → Key Binds to bind a key for MCCF to open the config screen."
 }
