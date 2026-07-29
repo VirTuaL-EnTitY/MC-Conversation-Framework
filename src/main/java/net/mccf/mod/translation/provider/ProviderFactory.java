@@ -1,5 +1,6 @@
 package net.mccf.mod.translation.provider;
 
+import net.mccf.mod.MCCF;
 import net.mccf.mod.config.ProviderConfig;
 
 /**
@@ -27,7 +28,14 @@ public final class ProviderFactory {
 			case KimiTranslationProvider.ID -> new KimiTranslationProvider(config);
 			case DeepSeekTranslationProvider.ID -> new DeepSeekTranslationProvider(config);
 			case OllamaTranslationProvider.ID -> new OllamaTranslationProvider(config);
-			default -> new MockTranslationProvider();
+			// 未知 ID 仍然 fallback 到 Mock，保证服务器不崩——但必须 warn：
+			// 静默 fallback 会把"配置里打错了一个 provider id"这种错误掩盖成
+			// "翻译功能好像没生效"，玩家和管理员都难以定位。打 warn 让日志里
+			// 有明显线索，同时不抛异常避免阻塞启动或聊天流程。
+			default -> {
+				MCCF.LOGGER.warn("[MCCF] Unknown provider id '{}', falling back to MockProvider. Check config.json for typos.", providerId);
+				yield new MockTranslationProvider();
+			}
 		};
 	}
 }

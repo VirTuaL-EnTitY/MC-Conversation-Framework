@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import net.mccf.mod.MCCF;
 import net.mccf.mod.config.MCCFConfig;
 import net.mccf.mod.config.ProviderConfig;
+import net.mccf.mod.config.ProviderDefaults;
 import net.minecraft.server.network.ServerPlayerEntity;
 
 import java.util.LinkedHashMap;
@@ -73,7 +74,17 @@ public class ConfigSyncHandler {
 			}
 
 			if (root.has("activeProvider")) {
-				config.activeProvider = root.get("activeProvider").getAsString();
+				String requestedProvider = root.get("activeProvider").getAsString();
+				// 服务端必须校验 activeProvider 是否为已注册的合法 ID。
+				// 为什么服务端必须校验：客户端可能发来拼错的 provider id（或恶意
+				// 构造的非法值），不校验会导致非法值被持久化到 config.json，下次
+				// 重启时 registerAllProviders 会因找不到该 Provider 而回退到 mock，
+				// 管理员可能很久都不会注意到配置已经被污染了。
+				if (!ProviderDefaults.all().containsKey(requestedProvider)) {
+					return java.util.Optional.of("Unknown provider: '" + requestedProvider +
+							"'. Valid providers: " + ProviderDefaults.all().keySet());
+				}
+				config.activeProvider = requestedProvider;
 			}
 
 			if (root.has("providers")) {

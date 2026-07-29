@@ -81,6 +81,7 @@ public class MCCFConfig {
 							// 补齐新增 Provider 的默认配置（比如从旧版本升级上来，缺少 kimi/deepseek 字段）。
 							defaultProviderConfigs().forEach(loaded.providers::putIfAbsent);
 						}
+						loaded.validateAndClamp();
 						MCCF.LOGGER.info("[MCCF] Loaded config from {}", CONFIG_FILE);
 						return loaded;
 					}
@@ -91,8 +92,26 @@ public class MCCFConfig {
 		}
 
 		MCCFConfig defaults = new MCCFConfig();
+		defaults.validateAndClamp();
 		defaults.save();
 		return defaults;
+	}
+
+	/**
+	 * 校验并修正 conversationRange 与 hearingRange 的关系。
+	 *
+	 * 为什么 clamp 而不是抛异常：配置文件可能被管理员手动改错，抛异常会导致
+	 * 服务器启动失败（loadOrCreate 的调用方没有 try-catch 的预期，异常会
+	 * 一路抛到 ModInitializer.onInitialize 导致整个模组加载失败），clamp
+	 * 到合法值更友好——服务器能正常启动，日志里会有警告提醒管理员修正。
+	 */
+	private void validateAndClamp() {
+		if (conversationRange > hearingRange) {
+			MCCF.LOGGER.warn("[MCCF] conversationRange ({}) > hearingRange ({}), clamping conversationRange to hearingRange. " +
+					"能听到但不在对话组的悖论状态已通过 clamp 规避，请检查 config.json。",
+					conversationRange, hearingRange);
+			conversationRange = hearingRange;
+		}
 	}
 
 	public void save() {

@@ -2,13 +2,14 @@ package net.mccf.mod.translation.provider;
 
 import net.mccf.mod.config.ProviderConfig;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * DeepSeek 翻译 Provider。
  *
- * 同样是 OpenAI Chat Completions 兼容格式。
+ * 同样是 OpenAI Chat Completions 兼容格式，复用 {@link ChatCompletionsSupport}。
  *
  * 注意：DeepSeek 官方在 2026-07-24 起停用旧的 "deepseek-chat" /
  * "deepseek-reasoner" 别名，替换为 "deepseek-v4-flash" /
@@ -45,24 +46,24 @@ public class DeepSeekTranslationProvider implements TranslationProvider {
 		}
 
 		String model = config.model.isBlank() ? "deepseek-v4-flash" : config.model;
-		String endpoint = OpenAiTranslationProvider.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/chat/completions";
-		String systemPrompt = OpenAiTranslationProvider.buildSystemPrompt(request);
-		String body = OpenAiTranslationProvider.buildRequestBody(model, systemPrompt, request.sourceText());
+		String endpoint = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/chat/completions";
+		String systemPrompt = ChatCompletionsSupport.buildSystemPrompt(request);
+		String body = ChatCompletionsSupport.buildRequestBody(model, systemPrompt, request.sourceText());
 
 		return HttpProviderSupport.postJson(endpoint, body, Map.of(
 				"Authorization", "Bearer " + config.apiKey,
 				"Content-Type", "application/json"
-		)).thenApply(OpenAiTranslationProvider::parseChatCompletionResponse)
+		)).thenApply(ChatCompletionsSupport::parseChatCompletionResponse)
 				.thenApply(TranslationResult::new);
 	}
 
 	@Override
-	public CompletableFuture<java.util.List<String>> listModels() {
+	public CompletableFuture<List<String>> listModels() {
 		if (config.apiKey == null || config.apiKey.isBlank()) {
 			return CompletableFuture.failedFuture(new IllegalStateException("DeepSeek API key not configured"));
 		}
-		String endpoint = OpenAiTranslationProvider.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/models";
+		String endpoint = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/models";
 		return HttpProviderSupport.getJson(endpoint, Map.of("Authorization", "Bearer " + config.apiKey))
-				.thenApply(OpenAiTranslationProvider::parseModelListResponse);
+				.thenApply(ChatCompletionsSupport::parseModelListResponse);
 	}
 }

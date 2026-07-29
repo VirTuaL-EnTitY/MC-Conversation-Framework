@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,6 +40,24 @@ public class WorldDictionary {
 
 	/** term -> (langCode -> translation) */
 	private final Map<String, Map<String, String>> entries;
+
+	/**
+	 * 已编译的词条正则缓存。key 是 term，value 是 Pattern.compile(Pattern.quote(term))。
+	 *
+	 * 之所以缓存：applyPlaceholders 会被每条消息 × 每个听众 × 每个词条触发，
+	 * 而词条集合是相对稳定的（管理员不会每秒改词典）。Pattern.compile 涉及
+	 * 正则 NFA 构造，开销远高于单次 matcher.find()，反复编译同样的 term 是纯浪费。
+	 *
+	 * 之所以只缓存在内存、不持久化到文件：Pattern 对象无法直接序列化，且词条
+	 * 集合很小（典型几十到几百条）、编译耗时也仅微秒级——重启时重编一次完全
+	 * 可接受，引入持久化只会增加一致性维护负担（词条变了要同步刷新文件、
+	 * 文件损坏要回退等），收益不抵复杂度。内存够快，词条变更频率低，足够了。
+	 *
+	 * 失效策略：addEntry / removeEntry 时整体清空。词条变更频率远低于消息频率，
+	 * 整表清空比维护"哪些 term 的 Pattern 失效了"简单可靠；下次 applyPlaceholders
+	 * 会通过 computeIfAbsent 自动重新填满。
+	 */
+	private final Map<String, Pattern> compiledPatternCache = new ConcurrentHashMap<>();
 
 	private WorldDictionary(Map<String, Map<String, String>> entries) {
 		this.entries = entries;
@@ -89,11 +108,17 @@ public class WorldDictionary {
 	public void addEntry(String term, String langCode, String translation) {
 		entries.computeIfAbsent(term, k -> new LinkedHashMap<>()).put(langCode, translation);
 		save();
+		// 词条集合变了：清掉编译缓存。新增的 term 下次会自动 compile；
+		// 已删 term 的 Pattern 留着虽无害但占内存，整体清空最简单。
+		compiledPatternCache.clear();
 	}
 
 	public boolean removeEntry(String term) {
 		boolean removed = entries.remove(term) != null;
-		if (removed) save();
+		if (removed) {
+			save();
+			compiledPatternCache.clear();
+		}
 		return removed;
 	}
 
@@ -111,7 +136,11 @@ public class WorldDictionary {
 		int index = 0;
 		for (String term : entries.keySet()) {
 			if (term.isBlank()) continue;
-			Pattern pattern = Pattern.compile(Pattern.quote(term));
+			// 用缓存的编译结果：applyPlaceholders 是消息分发路径上的热点，
+			// 每条消息 × 每个听众 × 每个词条都会进这里，不缓存的话 Pattern.compile
+			// 的开销会随词条数线性放大。
+			Pattern pattern = compiledPatternCache.computeIfAbsent(term,
+					t -> Pattern.compile(Pattern.quote(t)));
 			Matcher matcher = pattern.matcher(result);
 			if (matcher.find()) {
 				String placeholder = "\u3014MCCF_DICT_" + index + "\u3015";

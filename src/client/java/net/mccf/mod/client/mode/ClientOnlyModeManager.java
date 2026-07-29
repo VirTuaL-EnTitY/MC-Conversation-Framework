@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
 import net.mccf.mod.MCCF;
+import net.mccf.mod.network.ModePreferencePayload;
 import net.mccf.mod.network.RequestConfigPayload;
 
 import java.io.IOException;
@@ -94,10 +95,18 @@ public final class ClientOnlyModeManager {
 		}
 	}
 
-	/** 在 {@code ClientPlayConnectionEvents.JOIN} 时调用，刷新自动检测结果。 */
+	/**
+	 * 在 {@code ClientPlayConnectionEvents.JOIN} 时调用，刷新自动检测结果。
+	 *
+	 * 顺序很关键：必须先设置 serverHasMod，再调用 sendModePreference()——
+	 * sendModePreference 内部用 {@link #isClientOnlyModeActive()} 决定上报什么值，
+	 * 而 AUTO 模式下 isClientOnlyModeActive 直接依赖 serverHasMod。若顺序反了，
+	 * 首次进服会基于"上一次连接的残留 serverHasMod"上报，可能与服务端真实状态相反。
+	 */
 	public static void onJoinServer() {
 		serverHasMod = ClientPlayNetworking.canSend(RequestConfigPayload.ID);
 		MCCF.LOGGER.info("[MCCF] Server MCCF detection: {}", serverHasMod ? "detected" : "not detected");
+		sendModePreference();
 	}
 
 	/** 在 {@code ClientPlayConnectionEvents.DISCONNECT} 时调用，避免残留上一个服务器的检测结果。 */
@@ -112,6 +121,28 @@ public final class ClientOnlyModeManager {
 	public static void setOverride(Override newOverride) {
 		override = newOverride == null ? Override.AUTO : newOverride;
 		save();
+		// 模式变更后立即通知服务端，让其更新对该玩家的空间化处理策略。
+		// 若当前未连接服务器（或连的是旧服务端不认这个包），canSend 会返回 false，
+		// sendModePreference 内部静默跳过，不会产生无意义的警告日志。
+		sendModePreference();
+	}
+
+	/**
+	 * 把当前模式偏好上报给服务端。服务端据此决定是否对该玩家跳过空间化拦截与字幕分发。
+	 *
+	 * 为什么必须做 canSend 检查而不是直接 send：旧版本 MCCF 服务端没有注册
+	 * ModePreferencePayload 通道，直接 send 会在客户端日志里刷"unknown packet"
+	 * 警告（虽然 Fabric 会优雅丢弃，但日志噪声对排查问题不友好）。canSend 检查
+	 * 的是登录阶段通道协商结果，能精确区分"新服务端可以发"和"旧服务端/无 MCCF
+	 * 不该发"，后者直接退回从 SubtitlePayload 提取文本的本地翻译方案。
+	 *
+	 * 何时调用：1) 玩家在配置界面切换模式后（{@link #setOverride}）；2) 加入服务器后
+	 * （{@link #onJoinServer}，此时通道协商已完成，canSend 结果可靠）。
+	 */
+	public static void sendModePreference() {
+		if (ClientPlayNetworking.canSend(ModePreferencePayload.ID)) {
+			ClientPlayNetworking.send(new ModePreferencePayload(isClientOnlyModeActive()));
+		}
 	}
 
 	/**

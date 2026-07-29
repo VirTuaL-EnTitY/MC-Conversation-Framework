@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * 实现说明：本管理器不主动"踢出"玩家；一个玩家是否仍属于某个 Conversation，
  * 由 SpatialChatHandler 在每次有人说话时重新计算范围内的听众，并调用
- * {@link #recordUtterance} driving 合并/拆分。真正的"离开"体现在：
+ * {@link #recordUtterance} 合并/拆分。真正的"离开"体现在：
  * 该玩家不再出现在任何后续 recordUtterance 的听众集合里，
  * 且其所在 Conversation 会在 tick() 中因超时或范围重算而与之分离。
  */

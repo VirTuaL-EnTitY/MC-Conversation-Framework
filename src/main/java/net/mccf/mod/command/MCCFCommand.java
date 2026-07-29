@@ -77,6 +77,12 @@ public class MCCFCommand {
 		boolean success = MCCF.getTranslationService().setActiveProvider(id);
 		if (success) {
 			MCCF.getTranslationService().clearCache();
+			// 把切换后的 Provider 写回 config 并落盘，保证重启后仍然生效。
+			// 为什么命令修改也要持久化：管理员用命令切换 Provider 时期望重启后
+			// 仍然生效，否则和通过配置界面修改的行为不一致（界面修改走
+			// ConfigSyncHandler 会调用 config.save()，命令路径也应如此）。
+			MCCF.getConfig().activeProvider = id;
+			MCCF.getConfig().save();
 			ctx.getSource().sendFeedback(() -> Text.translatable("command.mccf.provider.set", id), true);
 			return 1;
 		} else {
@@ -112,7 +118,9 @@ public class MCCFCommand {
 	}
 
 	private static int reload(com.mojang.brigadier.context.CommandContext<ServerCommandSource> ctx) {
-		MCCF.getTranslationService().clearCache();
+		// 委托给 MCCF.reload() 完成完整的读盘 + 重建 Provider + 清缓存流程。
+		// 之前只调 clearCache() 等于没 reload——管理员改了 JSON 文件不会生效。
+		MCCF.reload();
 		ctx.getSource().sendFeedback(() -> Text.translatable("command.mccf.reload"), true);
 		return 1;
 	}

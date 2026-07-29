@@ -32,11 +32,10 @@ import java.util.stream.Collectors;
  * 5. 翻译完成后，为每个听众单独发送一个 {@link SubtitlePayload}，
  *    displayMode 由其与说话者的距离/视线关系决定。
  *
- * 注意：这里没有实现"客户端语言检测"的具体网络协议（这需要一个配套的
- * C2S 握手包，客户端在加入服务器时上报 Options.language）。为了保持
- * 这份代码可独立编译验证，这里提供了 {@link PlayerLanguageRegistry}
- * 作为占位存储层——真实项目里在握手包处理器中调用它的 setLanguage 即可，
- * 其余翻译/字幕逻辑完全不需要改动。
+ * 客户端语言检测的网络协议已实现：客户端通过 {@link net.mccf.mod.network.LanguageReportPayload}
+ * 在加入服务器时上报自己的 Minecraft 语言设置，服务端在 {@link PlayerLanguageRegistry}
+ * 内存维护在线玩家的目标语言。另外客户端可通过 {@link net.mccf.mod.network.ModePreferencePayload}
+ * 声明自己处于纯客户端模式，此时本类对该玩家不做空间化处理（见 onChatMessage/dispatchTo 开头检查）。
  */
 public class SpatialChatHandler {
 
@@ -55,9 +54,18 @@ public class SpatialChatHandler {
 
 	/**
 	 * 对应 {@code ServerMessageEvents.ALLOW_CHAT_MESSAGE} 的回调签名。
-	 * 始终返回 false：MCCF 完全接管消息分发，不让原版群发广播发生。
+	 * 默认返回 false：MCCF 完全接管消息分发，不让原版群发广播发生。
+	 * 唯一例外：说话者本人选择了纯客户端模式——此时返回 true 放行原版广播。
 	 */
 	public boolean onChatMessage(SignedMessage message, ServerPlayerEntity sender, MessageType.Parameters params) {
+		// client-only 玩家的聊天不拦截：这个玩家明确表示只要本地翻译，服务端不应该为他做
+		// 空间化处理。放行后原版全服广播照常发生，所有人（包括他自己）都收到原版 CHAT 事件——
+		// 这正是 client-only 模式预期的"全服广播 + 各自本地翻译"行为。代价是这条消息不受空间化
+		// 隔离约束，但这本来就是玩家主动选择放弃服务端空间化才换来的，属于知情取舍。
+		if (ClientOnlyModeRegistry.isClientOnly(sender.getUuid())) {
+			return true;
+		}
+
 		MinecraftServer server = sender.getServer();
 		if (server == null) {
 			return true; // 极端情况下退回原版行为，保证消息不丢失。
@@ -107,6 +115,15 @@ public class SpatialChatHandler {
 	private void dispatchTo(List<ServerPlayerEntity> listeners, ServerPlayerEntity sender, String speakerName,
 			String rawText, String sourceLang, List<String> contextMessages, String displayMode) {
 		for (ServerPlayerEntity listener : listeners) {
+			// 对 client-only 听众不发字幕：避免给已经选择本地翻译的玩家发服务端字幕，
+			// 造成"原版聊天 + 服务端字幕 + 本地翻译追加"三重叠加显示。这些听众会从原版
+			// CHAT 广播里拿到文本走自己的本地翻译流程（前提是说话者也是 client-only 才有原版广播；
+			// 若说话者非 client-only，这里跳过则该听众什么都收不到——但 client-only 听众明确表态
+			// 不要服务端字幕，这是其主动选择的可见性损失，不是 bug）。
+			if (ClientOnlyModeRegistry.isClientOnly(listener.getUuid())) {
+				continue;
+			}
+
 			String targetLang = PlayerLanguageRegistry.getLanguage(listener.getUuid());
 
 			translationService.translate(rawText, sourceLang, targetLang, contextMessages)

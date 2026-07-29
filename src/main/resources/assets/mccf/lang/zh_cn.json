@@ -10,6 +10,8 @@
 	"mccf.config.provider": "服务提供商",
 	"mccf.config.api_key": "API 密钥",
 	"mccf.config.api_key.placeholder": "API 密钥（留空则保持当前值不变）",
+	"mccf.config.clear_api_key": "清除密钥",
+	"mccf.config.api_key_cleared": "API 密钥已清空（保存后生效）",
 	"mccf.config.model": "模型",
 	"mccf.config.model.placeholder": "模型名称",
 	"mccf.config.endpoint": "API 地址",
@@ -17,6 +19,7 @@
 	"mccf.config.reset_endpoint": "恢复默认地址",
 	"mccf.config.fetch_models": "获取模型列表",
 	"mccf.config.save": "保存",
+	"mccf.config.save_success": "已保存。",
 	"mccf.config.export_log": "导出日志",
 	"mccf.config.close": "关闭",
 	"mccf.config.loading": "正在加载配置...",
@@ -26,10 +29,22 @@
 	"mccf.config.not_connected": "当前未连接到服务器。",
 	"mccf.config.endpoint_reset": "地址已重置（保存后将使用默认地址）。",
 	"mccf.config.fetching_models": "正在获取模型列表...",
-	"mccf.config.models_found": "找到 %s 个模型 — 已打印到聊天栏。",
+	"mccf.config.models_empty": "未找到任何可用模型（可能 API Key 无权限，或该 Provider 无可用模型）",
+	"mccf.config.models_opened": "已打开模型选择界面，点击模型即可应用。",
 	"mccf.config.models_header": "%s 的可用模型：",
 	"mccf.config.fetch_failed": "获取失败：%s",
 	"mccf.config.client_only_settings": "纯客户端本地翻译设置",
+	"mccf.config.selectModel.title": "选择模型",
+	"mccf.config.selectModel.cancel": "取消",
+	"mccf.config.selectModel.current": "当前",
+	"mccf.config.provider_hint.openai": "需要 API Key，支持上下文。",
+	"mccf.config.provider_hint.claude": "需要 API Key，支持上下文。",
+	"mccf.config.provider_hint.gemini": "需要 API Key，支持上下文。",
+	"mccf.config.provider_hint.deepl": "需要 API Key，免费版以 :fx 结尾",
+	"mccf.config.provider_hint.kimi": "需要 API Key，OpenAI 兼容。",
+	"mccf.config.provider_hint.deepseek": "需要 API Key，OpenAI 兼容。",
+	"mccf.config.provider_hint.ollama": "本地部署，无需 API Key。",
+	"mccf.config.provider_hint.mock": "调试用，无需配置。",
 
 	"mccf.localconfig.title": "MCCF - 本地翻译设置（纯客户端模式）",
 	"mccf.localconfig.mode": "运行模式",
@@ -41,6 +56,7 @@
 	"mccf.localconfig.sync_done": "已同步（未拷贝 API 密钥，需要你自己填写）。",
 	"mccf.localconfig.detected_yes": "检测结果：当前服务器已安装 MCCF。",
 	"mccf.localconfig.detected_no": "检测结果：当前服务器未安装 MCCF（或尚未连接服务器）。",
+	"mccf.localconfig.warn_force_server_no_mod": "警告：服务器未检测到 MCCF，强制服务器模式将无法翻译。建议切换为“自动检测”或“强制纯客户端模式”。",
 
 	"mccf.provider.mock": "模拟 Provider（调试用）",
 	"mccf.provider.openai": "OpenAI",
@@ -49,5 +65,7 @@
 	"mccf.provider.deepl": "DeepL",
 	"mccf.provider.kimi": "Kimi（月之暗面）",
 	"mccf.provider.deepseek": "DeepSeek（深度求索）",
-	"mccf.provider.ollama": "Ollama（本地部署）"
+	"mccf.provider.ollama": "Ollama（本地部署）",
+
+	"mccf.tip.first_join": "[MCCF] MC 交流框架已就绪。前往 设置 → 控制 → 按键绑定 为 MCCF 绑定一个按键以打开配置界面。"
 }

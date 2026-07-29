@@ -20,8 +20,8 @@ import net.mccf.mod.MCCF;
  *   "canEdit": true,
  *   "activeProvider": "openai",
  *   "providers": {
- *     "openai": { "apiKey": "sk-...", "model": "gpt-4o-mini", "host": "" },
- *     "ollama": { "apiKey": "", "model": "llama3.2", "host": "http://localhost:11434" },
+ *     "openai": { "apiKey": "sk-...", "model": "gpt-4o-mini", "endpoint": "" },
+ *     "ollama": { "apiKey": "", "model": "llama3.2", "endpoint": "http://localhost:11434" },
  *     ...
  *   }
  * }

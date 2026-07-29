@@ -16,8 +16,11 @@ import java.util.List;
  * 然后返回父 Screen。父 Screen 重新 init 时会从 state 读取新值填入 modelField。
  *
  * 设计取舍：
- * - 不传 {@code Consumer<String>} 回调，而是直接修改 ClientConfigState——
- *   这样父 Screen 的字段不需要在子 Screen 关闭后保持引用，逻辑更简单。
+ * - 既修改 ClientConfigState 又通过可选的 {@code Consumer<String>} 回调通知父 Screen。
+ *   原来只改 state，依赖父 Screen 重新 init() 时 refreshFieldsFromState() 回读——
+ *   但父 Screen 的 init() 会发送 RequestConfigPayload 重新请求快照，服务端回应
+ *   到达后 applySnapshot 会覆盖 state，导致玩家刚选的模型被冲掉。回调让父 Screen
+ *   有机会在 ModelSelectionScreen 关闭前显式拿到选中值，缩小这个竞态窗口。
  * - 不需要"保存"按钮——点击条目即应用，参考 Minecraft 选项菜单的常见交互。
  * - 用 {@link AlwaysSelectedEntryListWidget} 而不是一堆 ButtonWidget，
  *   因为模型数量可能很大（OpenAI 有几十个），列表可滚动更适合。
@@ -27,14 +30,22 @@ public class ModelSelectionScreen extends Screen {
 	private final Screen parent;
 	private final String providerId;
 	private final List<String> models;
+	/** 选中模型后的回调（可空）。用于通知父 Screen 直接更新输入框，避免依赖 state 间接传递。 */
+	private final java.util.function.Consumer<String> selectionCallback;
 
 	private ModelListWidget listWidget;
 
 	public ModelSelectionScreen(Screen parent, String providerId, List<String> models) {
+		this(parent, providerId, models, null);
+	}
+
+	public ModelSelectionScreen(Screen parent, String providerId, List<String> models,
+								java.util.function.Consumer<String> selectionCallback) {
 		super(Text.translatable("mccf.config.selectModel.title"));
 		this.parent = parent;
 		this.providerId = providerId;
 		this.models = models;
+		this.selectionCallback = selectionCallback;
 	}
 
 	@Override
@@ -57,7 +68,15 @@ public class ModelSelectionScreen extends Screen {
 	}
 
 	private void onModelSelected(String model) {
+		// 写入 ClientConfigState：onSave 时会从 state 读 model 发给服务端，
+		// 同时父 Screen 重新 init() 时 refreshFieldsFromState() 也会回读这里写入的值。
 		ClientConfigState.get().getOrCreate(providerId).model = model;
+		// 回调通知父 Screen 直接更新 modelField——虽然 close() 后父 Screen 会重新
+		// init() 从 state 回读，但 init() 里的 RequestConfigPayload 异步回应可能覆盖
+		// state，回调让父 Screen 有机会在关闭前显式拿到选中值，作为一道保险。
+		if (selectionCallback != null) {
+			selectionCallback.accept(model);
+		}
 		close();
 	}
 

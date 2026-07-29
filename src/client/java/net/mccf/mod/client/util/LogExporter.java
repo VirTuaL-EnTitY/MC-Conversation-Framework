@@ -3,15 +3,16 @@ package net.mccf.mod.client.util;
 import net.fabricmc.loader.api.FabricLoader;
 import net.mccf.mod.MCCF;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * 日志导出：把 MCCF 相关的日志内容整理到一个独立文件，方便玩家/管理员
@@ -27,7 +28,6 @@ import java.util.regex.Pattern;
  */
 public final class LogExporter {
 
-	private static final Pattern MCCF_LOG_LINE = Pattern.compile(".*\\[MCCF\\].*");
 	private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 
 	private LogExporter() {}
@@ -57,11 +57,31 @@ public final class LogExporter {
 
 			if (mode == ExportMode.MCCF_ONLY || mode == ExportMode.BOTH) {
 				Path mccfOnlyOutput = exportDir.resolve("mccf-log-" + timestamp + ".txt");
-				List<String> allLines = Files.readAllLines(latestLog, StandardCharsets.UTF_8);
-				List<String> mccfLines = allLines.stream()
-						.filter(line -> MCCF_LOG_LINE.matcher(line).matches())
-						.toList();
-				Files.write(mccfOnlyOutput, mccfLines, StandardCharsets.UTF_8);
+				// 流式读取 + 过滤写入，而不是 Files.readAllLines 一次性读入内存。
+				// 为什么改流式：有些玩家长期不重启游戏，latest.log 可能积累到几百 MB，
+				// readAllLines 会把整个文件读成 List<String> 常驻堆内存，极端情况下 OOM。
+				// Files.lines() 返回的 Stream 是惰性读取，内存占用恒定（只缓冲一行），
+				// 配合 BufferedWriter 直接逐行写出，对任意大小的日志都能稳定工作。
+				//
+				// 为什么用 String.contains 而不是正则 .*\\[MCCF\\].*：这里只是固定
+				// 子串匹配，contains 是 JDK 内部优化的原生方法，省去了 Pattern 编译
+				// 和正则状态机的开销，在百万行级别日志上性能差距明显。
+				try (Stream<String> lines = Files.lines(latestLog, StandardCharsets.UTF_8);
+					 BufferedWriter writer = Files.newBufferedWriter(mccfOnlyOutput, StandardCharsets.UTF_8,
+							 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+					lines.filter(line -> line.contains("[MCCF]"))
+							.forEach(line -> {
+								try {
+									writer.write(line);
+									writer.write('\n');
+								} catch (IOException e) {
+									// forEach 的 lambda 不能直接抛 IOException，这里包一层。
+									// 实际写入失败概率极低（磁盘满才会触发），交给外层 catch 兜底不现实，
+									// 只能记录日志后继续——部分行丢失也比整个导出崩溃好。
+									MCCF.LOGGER.error("[MCCF] Failed to write a log line during export.", e);
+								}
+							});
+				}
 				resultMessage.append("MCCF log: ").append(mccfOnlyOutput.getFileName());
 			}
 

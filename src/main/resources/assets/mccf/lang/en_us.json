@@ -10,6 +10,8 @@
 	"mccf.config.provider": "Provider",
 	"mccf.config.api_key": "API Key",
 	"mccf.config.api_key.placeholder": "API Key (leave blank to keep current)",
+	"mccf.config.clear_api_key": "Clear Key",
+	"mccf.config.api_key_cleared": "API key cleared (applies on save)",
 	"mccf.config.model": "Model",
 	"mccf.config.model.placeholder": "Model name",
 	"mccf.config.endpoint": "API Endpoint",
@@ -17,6 +19,7 @@
 	"mccf.config.reset_endpoint": "Reset Endpoint",
 	"mccf.config.fetch_models": "Fetch Models",
 	"mccf.config.save": "Save",
+	"mccf.config.save_success": "Saved successfully.",
 	"mccf.config.export_log": "Export Log",
 	"mccf.config.close": "Close",
 	"mccf.config.loading": "Loading configuration...",
@@ -26,10 +29,22 @@
 	"mccf.config.not_connected": "Not connected to a server.",
 	"mccf.config.endpoint_reset": "Endpoint reset (will use default on save).",
 	"mccf.config.fetching_models": "Fetching models...",
-	"mccf.config.models_found": "Found %s models — printed to chat.",
+	"mccf.config.models_empty": "No models found (API key may lack permission, or provider has no models)",
+	"mccf.config.models_opened": "Opened model selection screen. Click a model to apply.",
 	"mccf.config.models_header": "Models for %s:",
 	"mccf.config.fetch_failed": "Fetch failed: %s",
 	"mccf.config.client_only_settings": "Client-Only Local Translation Settings",
+	"mccf.config.selectModel.title": "Select Model",
+	"mccf.config.selectModel.cancel": "Cancel",
+	"mccf.config.selectModel.current": "Current",
+	"mccf.config.provider_hint.openai": "Requires API Key. Supports context.",
+	"mccf.config.provider_hint.claude": "Requires API Key. Supports context.",
+	"mccf.config.provider_hint.gemini": "Requires API Key. Supports context.",
+	"mccf.config.provider_hint.deepl": "Requires API Key. Free tier key ends with :fx",
+	"mccf.config.provider_hint.kimi": "Requires API Key. OpenAI-compatible.",
+	"mccf.config.provider_hint.deepseek": "Requires API Key. OpenAI-compatible.",
+	"mccf.config.provider_hint.ollama": "Local deployment. No API Key needed.",
+	"mccf.config.provider_hint.mock": "Debug only. No configuration needed.",
 
 	"mccf.localconfig.title": "MCCF - Local Translation (Client-Only Mode)",
 	"mccf.localconfig.mode": "Mode",
@@ -41,6 +56,7 @@
 	"mccf.localconfig.sync_done": "Synced (API key not copied — enter your own key).",
 	"mccf.localconfig.detected_yes": "Detected: this server has MCCF installed.",
 	"mccf.localconfig.detected_no": "Detected: this server does NOT have MCCF installed (or you are not connected).",
+	"mccf.localconfig.warn_force_server_no_mod": "Warning: MCCF not detected on server. Force Server Mode won't be able to translate. Consider switching to Auto or Force Client-Only.",
 
 	"mccf.provider.mock": "Mock (Debug)",
 	"mccf.provider.openai": "OpenAI",
@@ -49,5 +65,7 @@
 	"mccf.provider.deepl": "DeepL",
 	"mccf.provider.kimi": "Kimi (Moonshot AI)",
 	"mccf.provider.deepseek": "DeepSeek",
-	"mccf.provider.ollama": "Ollama (Local)"
+	"mccf.provider.ollama": "Ollama (Local)",
+
+	"mccf.tip.first_join": "[MCCF] MC Conversation Framework is ready. Go to Settings → Controls → Key Binds to bind a key for MCCF to open the config screen."
 }

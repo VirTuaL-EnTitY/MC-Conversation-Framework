@@ -44,10 +44,10 @@ public class GeminiTranslationProvider implements TranslationProvider {
 		}
 
 		String model = config.model.isBlank() ? "gemini-3.5-flash" : config.model;
-		String base = OpenAiTranslationProvider.stripTrailingSlash(config.effectiveEndpoint(ID));
+		String base = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID));
 		String endpoint = base + "/v1beta/models/" + model + ":generateContent";
 
-		String systemPrompt = OpenAiTranslationProvider.buildSystemPrompt(request);
+		String systemPrompt = ChatCompletionsSupport.buildSystemPrompt(request);
 		String combinedPrompt = systemPrompt + "\n\nText to translate:\n" + request.sourceText();
 		String body = buildRequestBody(combinedPrompt);
 
@@ -63,7 +63,7 @@ public class GeminiTranslationProvider implements TranslationProvider {
 		if (config.apiKey == null || config.apiKey.isBlank()) {
 			return CompletableFuture.failedFuture(new IllegalStateException("Gemini API key not configured"));
 		}
-		String base = OpenAiTranslationProvider.stripTrailingSlash(config.effectiveEndpoint(ID));
+		String base = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID));
 		String endpoint = base + "/v1beta/models";
 		return HttpProviderSupport.getJson(endpoint, Map.of("x-goog-api-key", config.apiKey))
 				.thenApply(GeminiTranslationProvider::parseModelListResponse);

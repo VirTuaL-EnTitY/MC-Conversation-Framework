@@ -1,5 +1,6 @@
 package net.mccf.mod.translation.provider;
 
+import com.google.gson.Gson;
 import net.mccf.mod.MCCF;
 
 import java.net.URI;
@@ -23,6 +24,16 @@ final class HttpProviderSupport {
 			.build();
 
 	private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
+
+	/**
+	 * 用于 JSON 字符串转义的 Gson 实例。
+	 *
+	 * 用静态字段而不是每次 new Gson()：Gson 实例本身是线程安全且无状态的，
+	 * 复用同一个实例避免每次调用 escapeJson 都重新构造 TypeAdapter 映射。
+	 * 不用 GsonBuilder.setPrettyPrinting——escapeJson 只用于拼接到一行
+	 * JSON body 里，不需要换行缩进。
+	 */
+	private static final Gson GSON = new Gson();
 
 	private HttpProviderSupport() {}
 
@@ -95,27 +106,30 @@ final class HttpProviderSupport {
 		return s.length() > 300 ? s.substring(0, 300) + "..." : s;
 	}
 
-	/** 简单的 JSON 字符串转义，用于手写 JSON body（避免引入额外依赖，Gson 仅用于解析响应）。 */
+	/**
+	 * JSON 字符串转义，用于手写 JSON body 的字段值拼接。
+	 *
+	 * 为什么用 Gson 而不是手写循环：手写 JSON 转义看似简单（处理 "、\、
+	 * \n、\r、\t 和 < 0x20 的控制字符），但边界情况多——代理对（surrogate
+	 * pairs）、BOM、各种 Unicode 边界字符的转义策略容易遗漏或写错，而且
+	 * 不同 JSON 解析器对某些控制字符的容忍度不同，手写实现踩坑不易察觉。
+	 * Gson 的 StringSerializer 经过充分测试，覆盖 RFC 8259 的全部边界情况，
+	 * 直接复用比自己维护一份转义循环可靠得多。
+	 *
+	 * 返回的是不带引号的转义文本——调用方（各 Provider 的 buildRequestBody）
+	 * 在拼 JSON 时自己负责加引号（例如 "\"model\":\"" + escapeJson(model) + "\""）。
+	 * Gson.toJson(text) 会返回带引号的完整 JSON 字符串字面量，这里去掉首尾
+	 * 引号以保持与原手写实现一致的契约，避免改动所有调用方。
+	 *
+	 * 注意：Gson 默认会开启 HTML 转义（把 <、>、= 等转成 U+XXXX 形式）。这与原
+	 * 手写实现的行为略有差异，但语义上等价——任何符合标准的 JSON 解析器
+	 * 都会把 U+003C 解析回 <，下游 AI Provider 看到的字符串内容完全相同，
+	 * 不影响翻译结果。如果未来需要字节级一致性（例如为了对比 baseline 响应），
+	 * 可以改用 new GsonBuilder().disableHtmlEscaping().create()。
+	 */
 	static String escapeJson(String s) {
-		StringBuilder sb = new StringBuilder();
-		for (int i = 0; i < s.length(); i++) {
-			char c = s.charAt(i);
-			switch (c) {
-				case '"' -> sb.append("\\\"");
-				case '\\' -> sb.append("\\\\");
-				case '\n' -> sb.append("\\n");
-				case '\r' -> sb.append("\\r");
-				case '\t' -> sb.append("\\t");
-				default -> {
-					if (c < 0x20) {
-						sb.append(String.format("\\u%04x", (int) c));
-					} else {
-						sb.append(c);
-					}
-				}
-			}
-		}
-		return sb.toString();
+		String json = GSON.toJson(s);
+		return json.substring(1, json.length() - 1);
 	}
 
 	/** URL 表单编码。 */

@@ -38,9 +38,9 @@ public class OllamaTranslationProvider implements TranslationProvider {
 	@Override
 	public CompletableFuture<TranslationResult> translate(TranslationRequest request) {
 		String model = config.model.isBlank() ? "llama3.2" : config.model;
-		String endpoint = OpenAiTranslationProvider.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/api/chat";
+		String endpoint = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/api/chat";
 
-		String systemPrompt = OpenAiTranslationProvider.buildSystemPrompt(request);
+		String systemPrompt = ChatCompletionsSupport.buildSystemPrompt(request);
 		String body = buildRequestBody(model, systemPrompt, request.sourceText());
 
 		// Ollama 本地默认无需鉴权；若管理员在自建反代前加了鉴权，可以把 token
@@ -56,7 +56,7 @@ public class OllamaTranslationProvider implements TranslationProvider {
 
 	@Override
 	public CompletableFuture<java.util.List<String>> listModels() {
-		String endpoint = OpenAiTranslationProvider.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/api/tags";
+		String endpoint = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/api/tags";
 		Map<String, String> headers = (config.apiKey == null || config.apiKey.isBlank())
 				? Map.of()
 				: Map.of("Authorization", "Bearer " + config.apiKey);

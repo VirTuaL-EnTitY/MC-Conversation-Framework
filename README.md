@@ -87,7 +87,7 @@ Minecraft 源码，便于后续开发调试。
   填写 API Key / 模型名 / API Endpoint，仅 op 可编辑，普通玩家只读查看
 - ✅ 世界词典（专有名词占位替换，保证跨 Provider 翻译一致性）
 - ✅ 客户端自动上报 Minecraft 语言设置作为目标语言
-- ✅ 双模式字幕：VISIBLE（悬浮说话者头顶）/ AUDIBLE（物品栏上方，多人堆叠布局）
+- ✅ 双模式字幕：VISIBLE（显示在说话者模型旁边、靠近相机的一侧）/ AUDIBLE（物品栏上方，多人堆叠布局）
 - ✅ `/mccf` 管理命令（status / provider / dictionary / reload）
 - ✅ API Endpoint 可自定义（接自建反代 / 兼容网关）+ 一键"恢复默认"
 - ✅ 配置界面一键拉取 Provider 可用模型列表
@@ -261,7 +261,7 @@ src/client/java/net/mccf/mod/client/
 ├── subtitle/
 │   ├── ActiveSubtitle.java           客户端内存态字幕数据
 │   ├── SubtitleManager.java          接收、超时管理、多人去重排序
-│   ├── WorldSubtitleRenderer.java    VISIBLE 模式：悬浮头顶（billboard 文字）
+│   ├── WorldSubtitleRenderer.java    VISIBLE 模式：说话者模型旁边（靠近相机侧）
 │   └── HotbarSubtitleRenderer.java   AUDIBLE 模式：物品栏上方堆叠显示
 └── util/LogExporter.java             日志导出逻辑（提取 MCCF 相关行 + 完整日志复制）
 ```
@@ -312,9 +312,10 @@ src/client/java/net/mccf/mod/client/
 - 世界广播、NPC 对话、剧情事件等在设计文档中提到的"未来扩展"尚未实现，
   但整体架构（Provider 可插拔 + Conversation 上下文隔离）是为它们预留的。
 - `network/` 包里有两个未注册使用的死代码类，见"五、目录结构"末尾说明。
-- 当前 VISIBLE 模式的字幕位置是"说话者头顶上方一点"，不是贴在人物旁边。
-  如果之后想做成基于屏幕投影坐标的贴身定位，World 渲染管线在新版本上不稳定，
-  需要单独一轮谨慎处理，避免与其他改动混在一起难以排查。
+- VISIBLE 模式的字幕位置已于 0.3.0 改为"说话者模型旁边、靠近相机的一侧"
+  （腰部高度，水平偏移），不再是早期版本的"头顶上方一点"。长文本支持自动
+  换行，远距离时有距离衰减。如果后续想进一步做成基于屏幕投影坐标的贴身定位，
+  World 渲染管线在新版本上不稳定，需要单独一轮谨慎处理。
 - **纯客户端模式（`ClientOnlyChatTranslator`）用到的 `ClientReceiveMessageEvents.CHAT`
   事件签名**：此前 README 里标注为"凭印象写、未本地编译验证"的风险点，在
   1.21.1 上经本地编译验证**签名正确**（5 参数：`message, signedMessage, sender, params, receptionTimestamp`），
@@ -325,6 +326,113 @@ src/client/java/net/mccf/mod/client/
 ---
 
 ## 八、更新日志
+
+### 2026-07-29　0.3.2 新增 7 种语言本地化
+
+在原有 `en_us` / `zh_cn` 基础上，新增 7 种常用语言的完整本土化翻译：
+
+| 语言文件 | 语言 | 本土化要点 |
+|---------|------|-----------|
+| `zh_tw.json` | 繁体中文（台湾） | 用台湾习惯用语：伺服器/設定/金鑰/匯出/除錯 |
+| `ja_jp.json` | 日语 | Minecraft 日语官方风格：サーバー/設定/キーバインド/プロバイダー |
+| `ko_kr.json` | 韩语 | 설정/서버/프로바이더/키 바인딩 |
+| `es_es.json` | 西班牙语 | Proveedor/Clave API/Asignación de teclas |
+| `fr_fr.json` | 法语 | Fournisseur/Clé API/Assignation des touches |
+| `de_de.json` | 德语 | 保留英文术语 Provider/Endpoint/Log（德国 IT 社区习惯） |
+| `ru_ru.json` | 俄语 | Провайдер/API-ключ/Назначение клавиш |
+
+各语言均遵循该语言区的 Minecraft 官方菜单翻译习惯（如菜单路径
+"Settings → Controls → Key Binds" 在日语为「設定 → 操作 → キーバインド」、
+德语为「Einstellungen → Steuerung → Tastenbelegung」），避免机翻味道。
+Provider 名称（OpenAI/Claude/Gemini 等）保留原名，括号里的公司名按
+各语言习惯处理（中文保留公司中文名，其他语言统一用英文公司名）。
+
+版本号 `0.3.1` → `0.3.2`（按 9.1 规则升 minor：新增功能，虽然只是资源文件）。
+
+### 2026-07-29　0.3.1 编译错误修复：TextFieldWidget 密码遮盖 API + 注释 Unicode 转义
+
+0.3.0 本地编译验证时发现两处编译错误，均为 API 适配遗漏：
+
+1. **`TextFieldWidget.setRenderPasswordReveal(boolean)` 在 1.21.1 上不存在**：
+   `MCCFConfigScreen.java` 和 `ClientOnlyConfigScreen.java` 用了这个方法开启
+   API Key 输入框的密码遮盖。该方法在 1.20.x 及之前存在，1.21.1 已移除。
+   改为 `setRenderTextProvider(BiFunction)`，传入一个把字符替换成 `•`（U+2022）
+   的函数实现同等效果。代价：失去原版"按住可短暂显示明文"的交互（本项目用不到）。
+2. **`HttpProviderSupport.java` 注释里的 `\uXXXX` 触发"非法的 Unicode 逃逸"**：
+   Java 编译器在词法分析阶段（早于注释识别）就会处理 `\uXXXX` 序列，注释里的
+   `\uXXXX`（`X` 非法十六进制）会导致编译失败。改为 `U+XXXX` 形式。
+
+两条踩坑已补入 9.2.5 版本兼容性踩坑汇总。版本号 `0.3.0` → `0.3.1`（patch）。
+
+### 2026-07-29　0.3.0 重大更新：字幕位置改造 + 强制客户端模式修复 + 性能与稳定性优化
+
+本轮更新基于 QA 审查报告，修复了多个功能与性能问题。版本号 `0.2.1` → `0.3.0`
+（按 9.1 规则升 minor：涉及功能修复 + 新增网络包 + 渲染逻辑改造）。
+
+**1. 字幕渲染位置改造（VISIBLE 模式）**
+- 字幕从"说话者头顶上方一点"改为"说话者模型旁边、靠近相机的一侧"（腰部高度，
+  水平偏移）。计算方式：取"说话者→相机"的水平方向向量并归一化，字幕位置 =
+  实体位置 + 水平偏移 + 腰部高度偏移。相机几乎在说话者正上方时默认偏右侧。
+- 长文本支持自动换行（按字符数估算宽度，超出时分行），避免单行过长遮挡画面。
+- 远距离字幕有距离衰减（alpha 随距离降低），避免远处字幕干扰视线。
+- 背景色统一为半透明黑色，保证不同亮度环境下可读性。
+- 涉及文件：`WorldSubtitleRenderer.java`。
+
+**2. 强制客户端模式 bug 修复（核心问题）**
+- **问题**：玩家在配置界面设置了"强制纯客户端模式"后，如果服务器装了 MCCF，
+  客户端仍按服务器模式运行（不翻译聊天栏），而不是只做本地翻译。
+- **根因**：服务端 `SpatialChatHandler` 只看"服务器是否装了 MCCF"，不知道
+  玩家的客户端模式偏好，依旧拦截原版聊天改发 `SubtitlePayload`，导致客户端
+  收不到原版 CHAT 事件、`ClientOnlyChatTranslator` 不触发。
+- **修复**：新增 `ModePreferencePayload`（C2S 网络包），客户端在加入服务器
+  和切换模式时通过它通知服务端自己的模式偏好。服务端 `SpatialChatHandler`
+  收到后，对 client-only 玩家跳过聊天拦截和字幕分发，让原版聊天广播通过，
+  客户端 `ClientOnlyChatTranslator` 正常触发本地翻译。
+- **退回方案**：旧服务端不认识 `ModePreferencePayload`（`canSend` 返回 false），
+  客户端会从 `SubtitlePayload` 里提取原文走本地翻译，保证向下兼容。
+- 新增文件：`ModePreferencePayload.java`、`ClientOnlyModeRegistry.java`。
+- 涉及文件：`SpatialChatHandler.java`、`ClientOnlyModeManager.java`、
+  `MCCFClient.java`、`ClientOnlyChatTranslator.java`、`MCCF.java`。
+
+**3. 翻译服务缓存与稳定性优化**
+- `TranslationService`：翻译失败的结果不再写入缓存（此前网络瞬断时失败结果被
+  永久缓存，导致网络恢复后仍无法翻译）。
+- 缓存改为 LRU 策略（`LinkedHashMap` access-order），最大 5000 条，超出自动
+  淘汰最久未访问的条目。
+- 缓存条目增加 TTL（1 小时），过期条目下次访问时自动删除。
+- 涉及文件：`TranslationService.java`。
+
+**4. ClientOnlyChatTranslator 优化**
+- 抽取 `translateAndAppend` 方法复用翻译逻辑（CHAT 事件监听器和 SubtitlePayload
+  退回方案两个调用点共用），避免重复代码。
+- 新增 Provider 实例缓存（按 providerId 缓存，避免高频聊天时每条消息都 new
+  Provider 短命对象）。
+- 新增固定窗口限流（每秒最多 5 条翻译请求），超出丢弃并记警告日志，防止
+  聊天刷屏时 API Key 被封。
+- 涉及文件：`ClientOnlyChatTranslator.java`。
+
+**5. 配置界面优化**
+- `ModelSelectionScreen` 调用修复：此前模型选择界面未被正确调用（死代码），
+  现在获取模型成功后会正确打开 `ModelSelectionScreen` 供玩家选择。
+- `ClientOnlyConfigScreen` 新增强制服务器模式警告：当玩家选择"强制服务器模式"
+  但服务器未检测到 MCCF 时，显示红色警告提示。
+- 新增 Provider 提示文字（`mccf.config.provider_hint.*`），帮助玩家了解每个
+  Provider 的配置要求。
+- 涉及文件：`MCCFConfigScreen.java`、`ClientOnlyConfigScreen.java`。
+
+**6. 首次加入提示**
+- 客户端首次进入游戏世界时，在聊天栏显示一条提示（`mccf.tip.first_join`），
+  引导玩家到"设置→控制→按键绑定"为 MCCF 绑定配置按键。整个客户端生命周期
+  只提示一次，不随换服务器重置。
+- 涉及文件：`MCCFClient.java`、`zh_cn.json`、`en_us.json`。
+
+**7. 其他优化**
+- `WorldDictionary`：缓存编译后的 `Pattern` 对象，词条变更时清除缓存，
+  避免每次翻译都重新编译正则。
+- `ProviderFactory`：未知 Provider ID 静默 fallback 到 Mock 时，新增
+  `LOGGER.warn` 日志提示可能存在配置错误。
+- `HttpProviderSupport`：用 Gson 替代手写 JSON 转义方法，提高可靠性。
+- `LogExporter`：改为流式读取日志文件（逐行过滤），避免大日志文件 OOM。
 
 ### 2026-07-28　目标版本从 1.21.8 切换到 1.21.1
 按项目目录命名（`MC-Conversation-Framework-1.21.1`）和模组生态兼容性需求，
@@ -359,6 +467,36 @@ src/client/java/net/mccf/mod/client/
 `WorldRenderEvents.AFTER_ENTITIES`、`KeyBinding` 字符串分类 + `wasPressed()`、
 `ClientReceiveMessageEvents.CHAT` 5 参数签名、`AlwaysSelectedEntryListWidget` 构造器
 ——后者在 1.21.1 上是 5 参数，1.21.8 扩为 6 参数，也已修复）均核对完毕。
+
+### 2026-07-28　记入注释风格规范 + 新增"已确认规则"章节
+- 用户要求参考 Claude 的注释风格，把以下 6 条规则记入项目规则：
+  1. 注释写"为什么"不写"是什么"（叙述性长句解释决策动机）。
+  2. 把决策历史写进注释（谁反馈的、旧版本错在哪、为什么改成现在这样、
+     保留为特性的部分显式声明"不再处理"）。
+  3. 类级别声明职责边界（Javadoc 开头明确"只管 X，不管 Y"）。
+  4. 对比论证（非显然的 API 选择说明为什么选 A 不选 B，包括 A 的代价）。
+  5. 版本兼容性踩坑留在注释里（方便未来升级时少踩坑）。
+  6. 诚实承认不确定性（没查清楚的直接写明"索性完全绕开"，不要假装完全理解了）。
+- 同时要求 README 维护独立的"已确认规则"章节，和更新日志区分开：
+  更新日志是按时间的事件流，规则是稳定的约束。
+- **已完成**：
+  - 规则同步记入项目记忆文件 `project_memory.md`（供 AI 跨会话记忆）。
+  - README 新增"九、已确认规则"章节，包含 9.1（版本号与 README 更新规则）和
+    9.2（注释风格规范，含 6 条子规则），并在 9.2.5 汇总了本项目已记入的 4 处
+    版本兼容性踩坑（`BOOL`/`getTickDelta`/`HudRenderCallback`/`AlwaysSelectedEntryListWidget`）。
+- **版本号**：本次属于工程规范重大变更（影响后续所有代码风格），按 9.1 规则
+  升 minor：`0.2.1` → `0.3.0`。
+
+### 2026-07-28　注释修正 + 版本号策略记入项目规则
+- `HotbarSubtitleRenderer.java` 类注释里还残留 "由 MCCFClient 通过 `HudElementRegistry.addLast` 注册"
+  的旧描述（上一轮 API 适配时漏改），更新为 "通过 `HudRenderCallback.EVENT.register` 注册
+  （1.21.1 上用旧 API；1.21.6+ 才有 `HudElementRegistry.addLast`）"。
+- 全项目扫描 `TODO/FIXME/XXX/HACK` 标记：无残留。
+- 全项目扫描源码中的过时注释：仅上述 1 处，已修复。
+- **记入项目规则**：以后每次完成功能或更改后，视情况更新 `gradle.properties` 的 `mod_version`
+  并在 README 更新日志写明。版本号策略：patch=bug/注释修复，minor=功能/版本切换/API 适配，
+  major=重大重写。
+- 本次属于"只改注释"，按规则升 patch：`0.2.0` → `0.2.1`。
 
 ### 2026-07-28　本地编译报告修复的 3 处 API 差异
 切到 1.21.1 后本地编译验证，发现 3 处 1.21.1 ↔ 1.21.8 之间的 API 差异
@@ -545,3 +683,87 @@ Minecraft 在玩家**调整游戏窗口大小**时也会对所有当前打开的
 也没有本地编译验证，当时标注为风险点**——这两处（`ClientReceiveMessageEvents.CHAT`
 事件签名、`CyclingButtonWidget.setValue(...)`）后续在 1.21.1 上经本地编译
 验证均通过，风险已消除，详见"七、已知限制"最后一条。
+
+---
+
+## 九、已确认规则
+
+> 本章节记录与团队/用户对齐过的**稳定规则**，供实现对照，避免后续改动时逻辑漂移。
+> 和"八、更新日志"不同：更新日志是按时间的事件流（谁在什么时候改了什么），
+> 本章节是稳定的约束（代码必须长期遵循的规范）。新规则记入这里之后，
+> 只有在显式声明废弃时才能移除，不能因为某次改动"看起来不需要了"就悄悄省略。
+
+### 9.1 版本号与 README 更新规则
+- **触发条件**：每次完成一个功能或更改后，视情况更新项目版本号，并在 README 更新日志写明本次更改。
+- **版本号位置**：`gradle.properties` 的 `mod_version` 字段。
+- **版本号策略**（语义化版本）：
+  - `patch`（x.y.**Z**）：小 bug 修复、注释修正、文档调整等不影响功能/构建的改动。
+  - `minor`（x.**Y**.0）：新功能、版本切换（如 MC 版本适配）、API 适配修复、构建配置重大调整、工程规范重大变更。
+  - `major`（**X**.0.0）：重大重写、架构变更。
+- **README 更新位置**："八、更新日志"章节，按日期倒序新增条目。
+- **"视情况"判断标准**：
+  - 纯探索性查询、仅读不改 → 不更新版本号，可记可不记 README。
+  - 改了源代码/构建配置/资源文件 → **必须**更新版本号 + 写 README 更新日志。
+  - 只改了 README/注释 → 可只升 patch 并在 README 记一笔，也可不升版本号只记日志。
+- **记入时间**：2026-07-28。
+
+### 9.2 注释风格规范
+本节的规则适用于**所有新写的代码注释和 Javadoc**，改老代码时如果碰到不符合规范的注释
+也应该顺手修正。参考 Claude 的注释风格，核心原则：**注释的价值在于解释"为什么"，
+而不是重复"是什么"**——代码本身已经说明了"是什么"。
+
+#### 9.2.1 注释写"为什么"，不写"是什么"
+- 用**叙述性长句**解释决策动机，而不是干巴巴描述代码行为。
+- 反例：`// 重置血量`
+- 正例：`// 玩家重生后必须显式 setHealth(20.0) 重置血量，因为死亡时残留的"当前血量"
+  会被 RespawnScreen 复用到新角色身上；不能用 heal() 或治疗指令，那会触发 Regen
+  效果的事件链，和"重生瞬间满血"的语义不符；这一步必须在 teleport(toSpawn)
+  之前调用，否则复活点坐标更新后 PlayerEvent.Respawn 已经触发，血量会被
+  respawn 逻辑二次覆盖。`
+
+#### 9.2.2 把决策历史写进注释
+- 遇到曾经改过的逻辑，注释里保留**决策脉络**：谁反馈的、旧版本错在哪、为什么改成现在这样。
+- 团队决定**保留为特性**的部分（不是 bug），要显式声明
+  "此行为经讨论后保留，不再处理"，防止后续接手的人当成 bug 再"修"一遍。
+- 目的：让后人能还原决策过程，而不只是看到当前状态。
+
+#### 9.2.3 类级别声明职责边界
+- 每个**类的 Javadoc 开头**必须明确写："这个类只管 X，不管 Y（那是 Z 类的职责）"。
+- 目的：防止越界改动。如果某个类的方法开始调用它"不该管"的东西，评审时一眼能看出来。
+- 模板：
+  ```java
+  /**
+   * <职责的一句话描述>
+   *
+   * 职责边界：
+   * - 只管：X、Y
+   * - 不管：A（那是 B 类的职责）、C（那是 D 类的职责）
+   */
+  ```
+
+#### 9.2.4 对比论证：非显然的 API 选择必须说明
+- 遇到非显然的 API 选择（比如 `setHealth` vs `damage()`、`teleport` vs 手动构造
+  `TeleportTarget`），在注释里说明**为什么选 A 不选 B**，包括 A 的代价。
+- 模板：`// 这里用 setHealth 而不是 damage()：damage 会触发 LivingEntityDamage 事件，
+  被护甲/药水/模组拦截后扣血量不可控；setHealth 是直接写入，代价是绕过了所有
+  "伤害处理"逻辑（包括死亡判断），所以调用前必须手动检查 currentHealth > 0。`
+- 目的：避免后人"优化"代码时把 A 换成 B，触发当初已经踩过的坑。
+
+#### 9.2.5 版本兼容性踩坑留在注释里
+- 任何因为 MC / Fabric / Yarn 版本差异踩过的坑，都要在**对应代码位置**留注释。
+- 格式：`// 1.21.1 的 DynamicRegistryManager 用 get() 而不是 getOrThrow()
+  （后者是 1.21.5+ 才改的名字）。升级到 1.21.5+ 时这里要同步改名。`
+- 已记入的版本踩坑（供查阅，代码位置也有对应注释）：
+  - `PacketCodecs.BOOL`（1.21.1）↔ `PacketCodecs.BOOLEAN`（1.21.8+）——`RequestConfigPayload.java`
+  - `RenderTickCounter.getTickDelta(boolean)`（1.21.1）↔ `getTickProgress(boolean)`（1.21.8+）——`WorldSubtitleRenderer.java`
+  - `HudRenderCallback.EVENT.register`（1.21.1）↔ `HudElementRegistry.addLast`（1.21.6+）——`MCCFClient.java` / `HotbarSubtitleRenderer.java`
+  - `AlwaysSelectedEntryListWidget` 构造器 5 参数（1.21.1）↔ 6 参数含 `itemHeight`（1.21.8+）——`ModelSelectionScreen.java`
+  - `TextFieldWidget.setRenderTextProvider(BiFunction)`（1.21.1）替代已移除的 `setRenderPasswordReveal(boolean)`（1.20.x 及之前）——`MCCFConfigScreen.java` / `ClientOnlyConfigScreen.java`。1.21.1 没有"一行开启密码框"的开关，需自己传一个把字符替换成圆点的 `BiFunction`。
+  - Java 源码注释中**不要写 `\uXXXX`**：Java 编译器在词法分析阶段（早于注释识别）就会处理 Unicode 转义，注释里的 `\uXXXX` 若 `X` 不是合法十六进制会报"非法的 Unicode 逃逸"。写 Unicode 码点请用 `U+XXXX` 形式——`HttpProviderSupport.java`。
+
+#### 9.2.6 诚实承认不确定性
+- 遇到没查清楚的底层行为，**直接写明**"没查清楚""索性完全绕开"，不要假装完全理解了。
+- 模板：`// 清零 timeUntilRegen 仍不足以保证扣血生效，具体是哪个环节吞掉的没有查清楚
+  （疑似 LivingEntity.damage 里有额外的 invulnerability 检查），索性完全绕开：
+  用 setHealth 直接写入，不依赖 damage 管线。`
+- 目的：让后人知道"这里还有未解之谜，不要盲目重构"，而不是误以为代码已经完全验证过。

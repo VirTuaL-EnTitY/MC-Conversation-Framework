@@ -22,6 +22,8 @@ import net.mccf.mod.network.SubtitlePayload;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 
 /**
  * MCCF 客户端入口。
@@ -31,7 +33,7 @@ import net.minecraft.client.util.InputUtil;
  * 2. 接收服务端字幕包，写入 {@link SubtitleManager}。
  * 3. 接收服务端配置快照包，写入 {@link ClientConfigState}，供配置界面显示。
  * 4. 注册两套字幕渲染器：
- *    - {@link WorldSubtitleRenderer}：VISIBLE 模式，悬浮在说话者头顶
+ *    - {@link WorldSubtitleRenderer}：VISIBLE 模式，显示在说话者模型旁边（靠近相机侧）
  *    - {@link HotbarSubtitleRenderer}：AUDIBLE 模式，显示在物品栏上方
  * 5. 注册按键绑定，独立于 ModMenu 呼出配置界面（{@link MCCFConfigScreen}）。
  *
@@ -46,6 +48,12 @@ import net.minecraft.client.util.InputUtil;
 public class MCCFClient implements ClientModInitializer {
 
 	private static KeyBinding openConfigKey;
+
+	/**
+	 * 首次启动提示是否已经发过。整个客户端生命周期只提示一次——不随换服务器重置，
+	 * 避免玩家每次进服都被同一条提示刷屏。进程重启后自然重置（字段在内存里不持久化）。
+	 */
+	private static boolean tipped = false;
 
 	@Override
 	public void onInitializeClient() {
@@ -65,7 +73,23 @@ public class MCCFClient implements ClientModInitializer {
 		HudRenderCallback.EVENT.register((context, tickCounter) -> hotbarRenderer.render(context, tickCounter));
 
 		ClientPlayNetworking.registerGlobalReceiver(SubtitlePayload.ID, (payload, context) ->
-				context.client().execute(() -> SubtitleManager.onReceive(payload)));
+				context.client().execute(() -> {
+					if (ClientOnlyModeManager.isClientOnlyModeActive()) {
+						// 退回方案：旧服务端不认识 ModePreferencePayload，依旧会拦截原版聊天改发
+						// SubtitlePayload。客户端收不到 CHAT 事件，ClientOnlyChatTranslator 的 CHAT
+						// 监听器不会触发，只能从 SubtitlePayload 里拿文本走本地翻译。
+						// 优先用 originalText（原文）让本地 Provider 按玩家自己语言翻译；若服务端
+						// 没填原文（showOriginalText=false 的配置），退到 translatedText——
+						// 服务端译文也比啥都没有强，至少玩家能看到一句话。
+						String sourceText = payload.originalText();
+						if (sourceText == null || sourceText.isBlank()) sourceText = payload.translatedText();
+						if (sourceText != null && !sourceText.isBlank()) {
+							ClientOnlyChatTranslator.translateAndAppend(sourceText, payload.speakerId().toString());
+						}
+					} else {
+						SubtitleManager.onReceive(payload);
+					}
+				}));
 
 		// 配置界面数据同步：服务端下发的快照写入本地状态，若配置 Screen 正开着则刷新其显示。
 		ClientPlayNetworking.registerGlobalReceiver(ConfigSnapshotPayload.ID, (payload, context) ->
@@ -106,6 +130,17 @@ public class MCCFClient implements ClientModInitializer {
 			String language = detectClientLanguage(client);
 			ClientPlayNetworking.send(new LanguageReportPayload(language));
 			ClientOnlyModeManager.onJoinServer();
+
+			// O1 首次启动提示：本 Mod 的配置按键没有默认绑定，玩家装完可能完全不知道
+			// 有这个 Mod 存在。用 tipped 标记保证整个客户端生命周期只提示一次——
+			// 不随换服务器重置，避免每次进服都被同一条提示刷屏。
+			// 放在 JOIN 事件里（而不是 onInitializeClient）是因为 client.player 在
+			// 初始化阶段还不存在，发消息必须等进入游戏世界后才能调用。
+			if (!tipped && client.player != null) {
+				client.player.sendMessage(
+						Text.translatable("mccf.tip.first_join").formatted(Formatting.GRAY), false);
+				tipped = true;
+			}
 		});
 
 		// 断开连接时清空本地字幕状态 + 重置模式检测结果，避免残留到下一局/下一个服务器。

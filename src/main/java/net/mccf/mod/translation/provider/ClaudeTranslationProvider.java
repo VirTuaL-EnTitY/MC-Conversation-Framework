@@ -43,8 +43,8 @@ public class ClaudeTranslationProvider implements TranslationProvider {
 		}
 
 		String model = config.model.isBlank() ? "claude-sonnet-4-6" : config.model;
-		String endpoint = OpenAiTranslationProvider.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/v1/messages";
-		String systemPrompt = OpenAiTranslationProvider.buildSystemPrompt(request);
+		String endpoint = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/v1/messages";
+		String systemPrompt = ChatCompletionsSupport.buildSystemPrompt(request);
 		String body = buildRequestBody(model, systemPrompt, request.sourceText());
 
 		return HttpProviderSupport.postJson(endpoint, body, Map.of(
@@ -60,11 +60,11 @@ public class ClaudeTranslationProvider implements TranslationProvider {
 		if (config.apiKey == null || config.apiKey.isBlank()) {
 			return CompletableFuture.failedFuture(new IllegalStateException("Claude API key not configured"));
 		}
-		String endpoint = OpenAiTranslationProvider.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/v1/models";
+		String endpoint = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/v1/models";
 		return HttpProviderSupport.getJson(endpoint, Map.of(
 				"x-api-key", config.apiKey,
 				"anthropic-version", ANTHROPIC_VERSION
-		)).thenApply(OpenAiTranslationProvider::parseModelListResponse);
+		)).thenApply(ChatCompletionsSupport::parseModelListResponse);
 	}
 
 	private static String buildRequestBody(String model, String systemPrompt, String userText) {

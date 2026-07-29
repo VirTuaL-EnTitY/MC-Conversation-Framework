@@ -17,6 +17,24 @@ import net.mccf.mod.MCCF;
  */
 public record UpdateConfigPayload(String json) implements CustomPayload {
 
+	/**
+	 * json 字段的最大字符数。
+	 *
+	 * 为什么要限制：PacketCodecs.STRING 本身不限制长度，恶意客户端可以构造
+	 * 超大 JSON 字符串撑爆服务端内存。65536 字符（约 64KB）足以容纳完整的
+	 * 配置快照——即使 8 个 Provider 每个都带很长的 API Key 和 endpoint，
+	 * 总量也远低于这个上限。
+	 */
+	private static final int MAX_JSON_LENGTH = 65536;
+
+	public UpdateConfigPayload {
+		if (json != null && json.length() > MAX_JSON_LENGTH) {
+			throw new IllegalArgumentException(
+					"UpdateConfigPayload json exceeds max length " + MAX_JSON_LENGTH +
+					" (was " + json.length() + ")");
+		}
+	}
+
 	public static final CustomPayload.Id<UpdateConfigPayload> ID =
 			new CustomPayload.Id<>(Identifier.of(MCCF.MOD_ID, "update_config"));
 

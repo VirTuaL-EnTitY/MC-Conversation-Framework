@@ -32,6 +32,29 @@ public record SubtitlePayload(
 		String displayMode
 ) implements CustomPayload {
 
+	/**
+	 * originalText / translatedText 的最大字符数。
+	 *
+	 * 为什么要限制：PacketCodecs.STRING 本身不限制长度，恶意客户端可以构造
+	 * 超大网络包（几十 MB 的字符串），导致服务端在反序列化时分配大量内存
+	 * 甚至 OOM 崩溃。4096 字符足以覆盖任何正常的聊天消息（原版 Minecraft
+	 * 聊天上限也才 256 字符，这里给翻译后的长文本留足余量）。
+	 */
+	private static final int MAX_TEXT_LENGTH = 4096;
+
+	public SubtitlePayload {
+		if (originalText != null && originalText.length() > MAX_TEXT_LENGTH) {
+			throw new IllegalArgumentException(
+					"SubtitlePayload originalText exceeds max length " + MAX_TEXT_LENGTH +
+					" (was " + originalText.length() + ")");
+		}
+		if (translatedText != null && translatedText.length() > MAX_TEXT_LENGTH) {
+			throw new IllegalArgumentException(
+					"SubtitlePayload translatedText exceeds max length " + MAX_TEXT_LENGTH +
+					" (was " + translatedText.length() + ")");
+		}
+	}
+
 	public static final CustomPayload.Id<SubtitlePayload> ID =
 			new CustomPayload.Id<>(Identifier.of(MCCF.MOD_ID, "subtitle"));
 

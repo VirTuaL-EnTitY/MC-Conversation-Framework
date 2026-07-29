@@ -63,7 +63,7 @@ public class DeepLTranslationProvider implements TranslationProvider {
 					? "https://api-free.deepl.com/v2/translate"
 					: "https://api.deepl.com/v2/translate";
 		} else {
-			endpoint = OpenAiTranslationProvider.stripTrailingSlash(config.endpoint.trim()) + "/v2/translate";
+			endpoint = ChatCompletionsSupport.stripTrailingSlash(config.endpoint.trim()) + "/v2/translate";
 		}
 
 		StringBuilder form = new StringBuilder();

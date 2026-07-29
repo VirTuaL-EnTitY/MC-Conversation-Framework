@@ -82,7 +82,15 @@ public class ClientConfigState {
 		return providers.computeIfAbsent(providerId, id -> new ClientProviderConfig());
 	}
 
-	/** 构造提交给服务端的 JSON——只包含当前内存里的编辑结果。 */
+	/**
+	 * 构造提交给服务端的 JSON——只包含当前内存里的编辑结果。
+	 *
+	 * endpoint 字段的发送逻辑采用三态（见 {@link ClientProviderConfig.EndpointAction}）：
+	 * UNCHANGED 时不发送 endpoint / resetEndpoint 字段，服务端见到字段缺失就
+	 * 保持原值——这样玩家切换 Provider 看一眼（输入框本来就空）不会误触发"恢复默认"。
+	 * 这与旧逻辑（用 isCustomEndpoint + endpoint.isBlank() 自动派生 resetEndpoint）
+	 * 的关键区别在于：旧逻辑无法表达"不改"这个意图。
+	 */
 	public String buildUpdateJson() {
 		JsonObject root = new JsonObject();
 		root.addProperty("activeProvider", activeProvider);
@@ -93,8 +101,27 @@ public class ClientConfigState {
 			JsonObject pcJson = new JsonObject();
 			pcJson.addProperty("apiKey", pc.apiKey == null ? "" : pc.apiKey);
 			pcJson.addProperty("model", pc.model == null ? "" : pc.model);
-			pcJson.addProperty("endpoint", pc.endpoint == null ? "" : pc.endpoint);
-			pcJson.addProperty("resetEndpoint", !pc.isCustomEndpoint && (pc.endpoint == null || pc.endpoint.isBlank()));
+
+			// endpoint 三态：根据玩家在 UI 上的显式意图决定发什么给服务端，
+			// 而不是从输入框文本反推。endpointAction 是 transient 字段，
+			// 只在配置 Screen 编辑期间由 onResetEndpoint / onSave 显式设置。
+			ClientProviderConfig.EndpointAction action = pc.endpointAction;
+			if (action == null) action = ClientProviderConfig.EndpointAction.UNCHANGED;
+			switch (action) {
+				case CUSTOM -> {
+					pcJson.addProperty("endpoint", pc.endpoint == null ? "" : pc.endpoint);
+					pcJson.addProperty("resetEndpoint", false);
+				}
+				case RESET_DEFAULT -> {
+					pcJson.addProperty("endpoint", "");
+					pcJson.addProperty("resetEndpoint", true);
+				}
+				case UNCHANGED -> {
+					// 故意不写 endpoint / resetEndpoint 字段，服务端见到字段缺失
+					// 就保持原值——这是"玩家没动 endpoint"的显式表达。
+				}
+			}
+
 			providersJson.add(entry.getKey(), pcJson);
 		}
 		root.add("providers", providersJson);
