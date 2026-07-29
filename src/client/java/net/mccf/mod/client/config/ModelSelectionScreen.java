@@ -12,15 +12,19 @@ import java.util.List;
 
 /**
  * 模型选择子 Screen：用列表展示某个 Provider 拉取到的可用模型，
- * 点击一条会把它写回 {@link ClientConfigState} 里该 Provider 的 model 字段，
- * 然后返回父 Screen。父 Screen 重新 init 时会从 state 读取新值填入 modelField。
+ * 点击一条会通过 {@code selectionCallback} 把选中值通知父 Screen，然后返回父 Screen。
+ *
+ * 职责边界：
+ * - 只管：展示模型列表、高亮当前模型、点击后通过回调通知父 Screen
+ * - 不管：选中的模型写到哪里（那是父 Screen 的职责——服务端面板写
+ *   {@link ClientConfigState}，本地面板写 {@link ClientOnlyTranslationConfig}，
+ *   两套配置存储完全独立，本类不应该耦合任何一方）
  *
  * 设计取舍：
- * - 既修改 ClientConfigState 又通过可选的 {@code Consumer<String>} 回调通知父 Screen。
- *   原来只改 state，依赖父 Screen 重新 init() 时 refreshFieldsFromState() 回读——
- *   但父 Screen 的 init() 会发送 RequestConfigPayload 重新请求快照，服务端回应
- *   到达后 applySnapshot 会覆盖 state，导致玩家刚选的模型被冲掉。回调让父 Screen
- *   有机会在 ModelSelectionScreen 关闭前显式拿到选中值，缩小这个竞态窗口。
+ * - 不持有任何配置类的引用，只通过回调传值。原来直接写 ClientConfigState 会导致
+ *   本地面板（用 ClientOnlyTranslationConfig）无法复用这个 Screen——写错配置类会让
+ *   玩家选的模型在下次打开界面时丢失（因为本地面板从 ClientOnlyTranslationConfig
+ *   读，而选中的值写进了 ClientConfigState）。改成纯回调后两个面板都能用。
  * - 不需要"保存"按钮——点击条目即应用，参考 Minecraft 选项菜单的常见交互。
  * - 用 {@link AlwaysSelectedEntryListWidget} 而不是一堆 ButtonWidget，
  *   因为模型数量可能很大（OpenAI 有几十个），列表可滚动更适合。
@@ -30,21 +34,37 @@ public class ModelSelectionScreen extends Screen {
 	private final Screen parent;
 	private final String providerId;
 	private final List<String> models;
-	/** 选中模型后的回调（可空）。用于通知父 Screen 直接更新输入框，避免依赖 state 间接传递。 */
+	/** 当前已选中的模型（可空）。用于高亮显示，让玩家一眼看出正在用哪个。 */
+	private final String currentModel;
+	/** 选中模型后的回调（可空）。父 Screen 在回调里把选中值写回各自的配置存储 + 更新输入框。 */
 	private final java.util.function.Consumer<String> selectionCallback;
 
 	private ModelListWidget listWidget;
 
 	public ModelSelectionScreen(Screen parent, String providerId, List<String> models) {
-		this(parent, providerId, models, null);
+		this(parent, providerId, models, null, null);
 	}
 
 	public ModelSelectionScreen(Screen parent, String providerId, List<String> models,
+								java.util.function.Consumer<String> selectionCallback) {
+		this(parent, providerId, models, null, selectionCallback);
+	}
+
+	/**
+	 * @param parent             返回时的父 Screen
+	 * @param providerId         当前 Provider ID（仅用于日志/调试，本类不读配置）
+	 * @param models             拉取到的模型列表
+	 * @param currentModel       当前已选中的模型（可空，用于高亮）
+	 * @param selectionCallback  选中模型后的回调（可空）
+	 */
+	public ModelSelectionScreen(Screen parent, String providerId, List<String> models,
+								String currentModel,
 								java.util.function.Consumer<String> selectionCallback) {
 		super(Text.translatable("mccf.config.selectModel.title"));
 		this.parent = parent;
 		this.providerId = providerId;
 		this.models = models;
+		this.currentModel = currentModel;
 		this.selectionCallback = selectionCallback;
 	}
 
@@ -52,15 +72,12 @@ public class ModelSelectionScreen extends Screen {
 	protected void init() {
 		listWidget = new ModelListWidget(MinecraftClient.getInstance(),
 				this.width, this.height, 40, this.height - 40, 14);
-		// 当前已选中的模型置顶（如果有），方便用户快速找到正在用的那个
-		String currentModel = ClientConfigState.get().getOrCreate(providerId).model;
 		for (String model : models) {
 			boolean isCurrent = model.equals(currentModel);
 			listWidget.addEntry(new ModelEntry(model, isCurrent, this::onModelSelected));
 		}
 		addSelectableChild(listWidget);
 
-		// 底部居中放一个"取消"按钮
 		addDrawableChild(ButtonWidget.builder(Text.translatable("mccf.config.selectModel.cancel"),
 						button -> close())
 				.dimensions(this.width / 2 - 60, this.height - 28, 120, 20)
@@ -68,12 +85,6 @@ public class ModelSelectionScreen extends Screen {
 	}
 
 	private void onModelSelected(String model) {
-		// 写入 ClientConfigState：onSave 时会从 state 读 model 发给服务端，
-		// 同时父 Screen 重新 init() 时 refreshFieldsFromState() 也会回读这里写入的值。
-		ClientConfigState.get().getOrCreate(providerId).model = model;
-		// 回调通知父 Screen 直接更新 modelField——虽然 close() 后父 Screen 会重新
-		// init() 从 state 回读，但 init() 里的 RequestConfigPayload 异步回应可能覆盖
-		// state，回调让父 Screen 有机会在关闭前显式拿到选中值，作为一道保险。
 		if (selectionCallback != null) {
 			selectionCallback.accept(model);
 		}

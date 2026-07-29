@@ -214,7 +214,9 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 			statusMessage = Text.translatable("mccf.config.models_opened");
 			statusColor = Colors.YELLOW;
 			if (MinecraftClient.getInstance() != null) {
-				MinecraftClient.getInstance().setScreen(new ModelSelectionScreen(screen, providerId, models, this::setModelFromSelection));
+				String currentModel = state.getOrCreate(providerId).model;
+				MinecraftClient.getInstance().setScreen(
+						new ModelSelectionScreen(screen, providerId, models, currentModel, this::setModelFromSelection));
 			}
 		} else {
 			statusMessage = Text.translatable("mccf.config.fetch_failed", error);

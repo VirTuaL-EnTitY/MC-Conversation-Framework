@@ -1,8 +1,11 @@
 package net.mccf.mod.client.config;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.mccf.mod.MCCF;
 import net.mccf.mod.client.mode.ClientOnlyModeManager;
 import net.mccf.mod.network.RequestConfigPayload;
+import net.mccf.mod.config.ProviderConfig;
+import net.mccf.mod.translation.provider.ProviderFactory;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -44,6 +47,7 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 	private ButtonWidget saveButton;
 	private ButtonWidget activateButton;
 	private ButtonWidget clearApiKeyButton;
+	private ButtonWidget fetchModelsButton;
 
 	private Text statusMessage = Text.empty();
 	private int statusColor = Colors.YELLOW;
@@ -117,6 +121,17 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		endpointField.setPlaceholder(Text.translatable("mccf.config.endpoint.placeholder"));
 		y += spacing;
 
+		// "获取模型列表"按钮：纯客户端模式下不走服务端中转，客户端直接调 Provider 的
+		// listModels() 接口拉取。和 ServerConfigPanel 的同名按钮功能一致，区别是
+		// ServerConfigPanel 把请求转发给服务端处理（因为服务端有 API Key 的权威副本），
+		// 这里直接在客户端构造 Provider 发 HTTP——纯客户端模式下服务端可能根本没装 MCCF，
+		// 没法帮忙。
+		fetchModelsButton = own(ButtonWidget.builder(
+						Text.translatable("mccf.config.fetch_models"), button -> onFetchModels())
+				.dimensions(panelLeft, y, panelWidth, fieldHeight)
+				.build());
+		y += spacing;
+
 		syncButton = own(ButtonWidget.builder(Text.translatable("mccf.localconfig.sync"), button -> onSync())
 				.dimensions(panelLeft, y, panelWidth, fieldHeight)
 				.build());
@@ -150,12 +165,16 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		boolean isMock = selectedProvider.equals("mock");
 		boolean isDeepL = selectedProvider.equals("deepl");
 		boolean isActive = selectedProvider.equals(pendingActiveProvider);
+		boolean supportsModelList = !ClientConfigState.NO_MODEL_LIST_SUPPORT.contains(selectedProvider);
 
 		apiKeyField.active = tabVisible && !isMock;
 		endpointField.active = tabVisible && !isMock;
 		modelField.active = tabVisible && !isMock && !isDeepL;
 		clearApiKeyButton.active = tabVisible && !isMock;
 		activateButton.active = tabVisible && !isActive;
+		if (fetchModelsButton != null) {
+			fetchModelsButton.active = tabVisible && supportsModelList;
+		}
 		activateButton.setMessage(Text.translatable(
 				isActive ? "mccf.config.activate.current" : "mccf.config.activate"));
 	}
@@ -201,6 +220,59 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		refreshFieldsFromState();
 		statusMessage = Text.translatable("mccf.localconfig.sync_done");
 		statusColor = Colors.YELLOW;
+	}
+
+	/**
+	 * 客户端直连 Provider API 拉取模型列表——不经过服务端中转。
+	 *
+	 * 为什么不走服务端：纯客户端模式下服务端可能根本没装 MCCF，发 RequestModelsPayload
+	 * 会被 canSend 拦截（通道不存在）。即使服务端装了 MCCF，玩家也可能在强制纯客户端
+	 * 模式下不想依赖服务端——本地配置的 API Key 和服务端配置的可能不是同一个，
+	 * 用服务端的 Key 去查模型列表反而会查到错误账号下的模型。
+	 *
+	 * 用输入框里当前填的 apiKey/endpoint（可能还没点保存）构造一次性 Provider，
+	 * 方便玩家"填完 Key 立刻测一下能不能拉到模型"——和服务端面板的交互一致。
+	 * 如果输入框为空，沿用已保存的配置（方便"已经保存过，只是想重新拉一次"的场景）。
+	 */
+	private void onFetchModels() {
+		ClientProviderConfig savedPc = config.getOrCreate(selectedProvider);
+		String apiKey = apiKeyField.getText().isBlank() ? savedPc.apiKey : apiKeyField.getText();
+		String endpoint = endpointField.getText().isBlank() ? savedPc.endpoint : endpointField.getText();
+		String model = modelField.getText().isBlank() ? savedPc.model : modelField.getText();
+
+		ProviderConfig tempConfig = new ProviderConfig(apiKey, model, endpoint);
+		var provider = ProviderFactory.create(selectedProvider, tempConfig);
+
+		statusMessage = Text.translatable("mccf.config.fetching_models");
+		statusColor = Colors.YELLOW;
+
+		provider.listModels().thenAccept(models -> MinecraftClient.getInstance().execute(() -> {
+			if (models.isEmpty()) {
+				statusMessage = Text.translatable("mccf.config.models_empty");
+				statusColor = Colors.YELLOW;
+				return;
+			}
+			statusMessage = Text.translatable("mccf.config.models_opened");
+			statusColor = Colors.YELLOW;
+			MinecraftClient.getInstance().setScreen(
+					new ModelSelectionScreen(screen, selectedProvider, models, model, this::setModelFromSelection));
+		})).exceptionally(ex -> {
+			String reason = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+			MCCF.LOGGER.warn("[MCCF] Local model list fetch failed for provider {}: {}", selectedProvider, reason);
+			MinecraftClient.getInstance().execute(() -> {
+				statusMessage = Text.translatable("mccf.config.fetch_failed", reason);
+				statusColor = Colors.YELLOW;
+			});
+			return null;
+		});
+	}
+
+	/** ModelSelectionScreen 选中模型后的回调：更新输入框 + 写入本地配置（不立即保存）。 */
+	public void setModelFromSelection(String model) {
+		if (modelField != null) {
+			modelField.setText(model);
+		}
+		config.getOrCreate(selectedProvider).model = model;
 	}
 
 	private void onClearApiKey() {

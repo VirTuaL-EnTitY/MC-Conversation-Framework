@@ -332,6 +332,30 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-07-30　0.6.0 新增：纯客户端本地设置面板的"获取模型列表"功能
+
+之前只有"服务端配置"标签页有"获取模型列表"按钮（走服务端中转），纯客户端模式
+下玩家主要用的"本地设置"标签页没有这个按钮——用户反馈"看不到任何一个一键获取
+模型的按钮"，因为纯客户端模式下服务端可能没装 MCCF，服务端面板的按钮即使存在
+也发不出请求。
+
+本次改动：
+
+1. **`LocalConfigPanel` 新增"获取模型"按钮**：点击后客户端直接构造 Provider 调用
+   `listModels()` 发 HTTP 请求拉取模型列表，不经过服务端中转。用输入框里当前填的
+   apiKey/endpoint（可能还没保存）构造一次性 Provider，方便"填完 Key 立刻测一下"。
+   拉取成功后弹出独立的 `ModelSelectionScreen` 列表界面供选择，点击条目即应用。
+
+2. **`ModelSelectionScreen` 解耦 `ClientConfigState`**：原来这个 Screen 硬编码从
+   `ClientConfigState` 读写模型字段，导致用 `ClientOnlyTranslationConfig` 的本地面板
+   无法复用。改造后通过 `currentModel` 参数 + `selectionCallback` 回调传值，不耦合
+   任何配置类，两个面板都能用。
+
+3. **`ServerConfigPanel` 适配**：调用 `ModelSelectionScreen` 时传入
+   `state.getOrCreate(providerId).model` 作为 `currentModel`，功能不变。
+
+版本号 `0.5.1` → `0.6.0`（minor：新增功能）。
+
 ### 2026-07-29　0.5.1 修复：补齐配置界面布局改动后遗漏的翻译键
 
 0.5.0 的配置界面改版（标签页布局 + 聊天历史记录界面 + "设为默认"按钮）新增了
