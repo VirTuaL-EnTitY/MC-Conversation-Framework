@@ -332,6 +332,39 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-07-29　0.4.1 修复：配置界面一打开就崩 Rendering screen（serverPanel is null）
+
+**问题**：按按键绑定呼出 `MCCFConfigScreen`（或经 ModMenu 打开）后立即崩溃，崩溃
+报告为 `NullPointerException: Cannot invoke "...ServerConfigPanel.render(...)"
+because "this.serverPanel" is null`，发生在 `MCCFConfigScreen.render()`。
+
+**根因**：经典的 Java "构造器里调用可重写方法"陷阱。`ProviderConfigPanel` 的构造器
+里调用了 `this.selectedProvider = initialSelectedProvider()`，而 `initialSelectedProvider()`
+是 abstract、由子类实现——子类实现里访问的是子类自己的实例字段
+（`ServerConfigPanel.state`、`LocalConfigPanel.config`，二者都是字段初始化器赋值）。
+Java 的实例字段初始化器在**父类构造器返回之后**才执行，因此父类构造器回调子类
+override 时 `state` / `config` 仍是默认值 `null`，直接 NPE。
+
+该 NPE 发生在 `MCCFConfigScreen.init()` 的 `new ServerConfigPanel(...)`（构造期
+`super()` 内），赋值未完成、`serverPanel` 保持 `null`；`init()` 抛出的异常被上层
+吞掉，界面仍被设为当前 Screen，下一帧 `render()` 解引用 `serverPanel` 时硬崩。
+`LocalConfigPanel` 存在同样的 bug，只是 `ServerConfigPanel`（第 79 行）先崩。
+
+旁证：`ModelSelectionScreen.render()` 同样直接解引用在 `init()` 里赋值的
+`listWidget` 且不做 null 检查，却从不崩溃——说明本代码库 / MC 1.21.1 下 `init()`
+确实在 `render()` 之前同步执行；因此 `serverPanel` 为 null 只能是 `init()` 抛异常
+未完成赋值所致，而非"render 跑在 init 之前"的时序问题。
+
+**修复**：把 `initialSelectedProvider()` 的调用从 `ProviderConfigPanel` 构造器移到
+`init()` 方法开头。此时子类构造已全部完成、`state` / `config` 字段已初始化，override
+能正常返回值。`selectedProvider` 在"构造完成到 `init()`"之间短暂为 `null`，但该窗口
+内无任何代码读取它（`MCCFConfigScreen.init()` 是构造完立刻 `init()`），故安全。
+
+**改动文件**：`ProviderConfigPanel.java`（构造器移除 override 调用 + 注释说明陷阱，
+`init()` 里 deferred 赋值）、`gradle.properties`（`0.4.0` → `0.4.1`）。
+
+版本号 `0.4.0` → `0.4.1`（按 9.1 规则升 patch：bug 修复，不改功能/构建）。
+
 ### 2026-07-29　0.4.0 修复：VISIBLE 模式字幕不显示，临时改回聊天框
 
 **问题**：能看见对方（VISIBLE 模式）时，字幕不会显示在玩家模型旁边。早期记录
