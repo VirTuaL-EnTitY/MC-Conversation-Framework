@@ -8,6 +8,7 @@ import net.mccf.mod.config.ProviderConfig;
 import net.mccf.mod.translation.provider.ProviderFactory;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.ConfirmScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.CyclingButtonWidget;
@@ -282,7 +283,54 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		statusColor = Colors.YELLOW;
 	}
 
+	/**
+	 * 保存前置检查：如果玩家选的是"强制服务器模式"、且客户端实际检测到当前连接的
+	 * 服务器没有装 MCCF，直接保存这个选择会导致翻译完全失效（见
+	 * mccf.localconfig.warn_force_server_no_mod 的说明）——这不是"可能有风险"，
+	 * 是"确定会出问题"，所以改成原版 ConfirmScreen 风格的拦截式确认弹窗，而不是
+	 * 一段常驻在设置界面里、容易被忽略或跟其他提示文字挤在一起的静态警告文字。
+	 *
+	 * 弹窗只在"点保存的这一刻"触发检查（而不是玩家一在下拉框选中该模式就弹），
+	 * 因为：(a) 玩家可能只是随手切换看看选项，还没想好，此时弹窗打断操作体验不好；
+	 * (b) 服务器检测状态可能在玩家操作过程中变化（比如切标签页时重新连接），
+	 * 点保存时的检测结果才是最终会被写入配置的、真正起作用的状态。
+	 */
 	private void onSave() {
+		ClientOnlyModeManager.Override effectiveOverride =
+				pendingOverride != null ? pendingOverride : ClientOnlyModeManager.getOverride();
+		boolean needsConfirmation = effectiveOverride == ClientOnlyModeManager.Override.FORCE_SERVER_MODE
+				&& !ClientOnlyModeManager.isServerDetected();
+
+		if (needsConfirmation) {
+			// 用 ConfirmScreen 最基础的 3 参数构造函数（callback, title, message）——
+			// 这是自早期版本起就稳定存在、Yarn mapping 从未变动过的签名。ConfirmScreen
+			// 还有一个额外重载支持自定义"是/否"按钮文字，但那个重载在不同 Minecraft
+			// 版本间的参数顺序/个数有过变化，在没有本地反编译源码可核对的情况下贸然
+			// 使用有编译失败的风险，所以这里保守地用最基础版本，按钮固定显示原版的
+			// "是/否"（gui.yes / gui.no），语义上"是=仍然保存，否=取消"依然清楚。
+			MinecraftClient.getInstance().setScreen(new ConfirmScreen(
+					confirmed -> {
+						// 无论选哪个按钮，都要先把界面切回配置屏幕本身——ConfirmScreen 的
+						// callback 触发时它自己还是 currentScreen，不主动切回的话，点"是"
+						// 之后玩家会卡在一个已经关闭逻辑但仍显示的确认弹窗上。
+						MinecraftClient.getInstance().setScreen(screen);
+						if (confirmed) {
+							performSave();
+						}
+						// 取消：不调用 performSave()，pendingOverride 等已输入的字段原样保留在
+						// 界面上（不清空），玩家可以直接改成别的模式再保存，不需要重新填一遍
+						// API Key 等其他字段。
+					},
+					Text.translatable("mccf.localconfig.warn_force_server_title"),
+					Text.translatable("mccf.localconfig.warn_force_server_no_mod")));
+			return;
+		}
+
+		performSave();
+	}
+
+	/** 实际执行保存——原 onSave() 的全部逻辑，供确认弹窗回调和"无需确认"路径共用。 */
+	private void performSave() {
 		ClientProviderConfig pc = config.getOrCreate(selectedProvider);
 		String enteredKey = apiKeyField.getText();
 		if (userClearedApiKey) {
@@ -320,38 +368,28 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		Text providerTitle = Text.translatable(ClientConfigState.providerNameKey(selectedProvider));
 		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, top - 14, Colors.WHITE);
 
+		// 底部提示区：三行从上到下依次是"Provider 说明 / 服务器检测状态 / 操作状态消息"，
+		// 固定间距 18px（比原来 4 行挤在一起时的 12-16px 间距更宽松，参照用户要求
+		// "保持在底部但拉开间距"）。"强制服务器模式但未检测到服务器"的警告不再在这里
+		// 常驻渲染——那个场景现在改成点"保存"时弹出的 ConfirmScreen 拦截式确认弹窗
+		// （见 onSave），因为那是"确定会出问题"而不是"仅供参考"的信息，弹窗式确认
+		// 比一段可能被忽略的常驻文字更能真正引起玩家注意，也顺带腾出了这里的空间，
+		// 不用再担心警告文字换行时挤占/覆盖其他两行的显示区域。
 		int screenBottom = screen.height - 20;
-		Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
-		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, screenBottom - 58, Colors.LIGHT_GRAY);
+		int lineSpacing = 18;
+		int line1Y = screenBottom - lineSpacing * 3;
+		int line2Y = screenBottom - lineSpacing * 2;
+		int line3Y = screenBottom - lineSpacing;
 
-		// 警告：选了"强制服务器模式"但服务器没装 MCCF 时翻译会完全失效。
-		ClientOnlyModeManager.Override effectiveOverride =
-				pendingOverride != null ? pendingOverride : ClientOnlyModeManager.getOverride();
-		if (effectiveOverride == ClientOnlyModeManager.Override.FORCE_SERVER_MODE
-				&& !ClientOnlyModeManager.isServerDetected()) {
-			String warningText = Text.translatable("mccf.localconfig.warn_force_server_no_mod").getString();
-			int wrapWidth = screen.width - 40;
-			int warningX = centerX - wrapWidth / 2;
-			int warningY = screenBottom - 46;
-			String remaining = warningText;
-			while (!remaining.isEmpty()) {
-				String trimmed = textRenderer.trimToWidth(remaining, wrapWidth);
-				if (trimmed.isEmpty() && !remaining.isEmpty()) {
-					trimmed = remaining.substring(0, 1);
-				}
-				context.drawTextWithShadow(textRenderer, trimmed, warningX, warningY, 0xFF5555);
-				warningY += textRenderer.fontHeight + 1;
-				if (trimmed.length() >= remaining.length()) break;
-				remaining = remaining.substring(trimmed.length());
-			}
-		}
+		Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
+		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, line1Y, Colors.LIGHT_GRAY);
 
 		Text detectedLine = Text.translatable(
 				ClientOnlyModeManager.isServerDetected() ? "mccf.localconfig.detected_yes" : "mccf.localconfig.detected_no");
-		context.drawCenteredTextWithShadow(textRenderer, detectedLine, centerX, screenBottom - 30, Colors.LIGHT_GRAY);
+		context.drawCenteredTextWithShadow(textRenderer, detectedLine, centerX, line2Y, Colors.LIGHT_GRAY);
 
 		if (!statusMessage.getString().isEmpty()) {
-			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, screenBottom - 16, statusColor);
+			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, line3Y, statusColor);
 		}
 	}
 }

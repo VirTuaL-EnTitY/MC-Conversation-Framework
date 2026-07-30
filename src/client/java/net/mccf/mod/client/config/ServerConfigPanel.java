@@ -317,15 +317,19 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		Text providerTitle = Text.translatable(ClientConfigState.providerNameKey(selectedProvider));
 		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, top - 14, Colors.WHITE);
 
+		// 底部提示区两行，间距 18px，与 LocalConfigPanel 保持一致的视觉风格
+		// （两个标签页共用同一套骨架，提示文字排布也应该看起来是"同一个界面的
+		// 两个页签"而不是两套不同的间距规则）。
 		int screenBottom = screen.height - 20;
+		int lineSpacing = 18;
 		Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
-		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, screenBottom - 30, Colors.LIGHT_GRAY);
+		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, screenBottom - lineSpacing * 2, Colors.LIGHT_GRAY);
 
 		if (!state.hasReceivedSnapshot) {
 			context.drawCenteredTextWithShadow(textRenderer, Text.translatable("mccf.config.loading"),
-					centerX, screenBottom - 16, Colors.LIGHT_GRAY);
+					centerX, screenBottom - lineSpacing, Colors.LIGHT_GRAY);
 		} else if (!statusMessage.getString().isEmpty()) {
-			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, screenBottom - 16, statusColor);
+			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, screenBottom - lineSpacing, statusColor);
 		}
 	}
 }

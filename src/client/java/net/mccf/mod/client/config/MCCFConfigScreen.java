@@ -32,6 +32,20 @@ public class MCCFConfigScreen extends Screen {
 	private static final int TAB_BAR_HEIGHT = 24;
 	/** 标签栏与下方面板之间的间隙——留出空间给面板内部"当前 Provider 名称"标题行。 */
 	private static final int TAB_BAR_GAP = 20;
+	/**
+	 * 底部提示文字区域的预留高度。ProviderConfigPanel 的两个子类都在屏幕底部画
+	 * 若干行提示文字（Provider 说明 / 状态消息，LocalConfigPanel 还多一行服务器
+	 * 检测状态），行距 18px。最多的是 LocalConfigPanel 的 3 行，按 3 行预留
+	 * （18px × 3 = 54px），两个面板统一用这个值，即使 ServerConfigPanel 只用得上
+	 * 2 行也无妨——空出来的地方留白，换来的是两个标签页"控件区下边界"位置一致，
+	 * 切换标签页时不会感觉界面在跳动。
+	 *
+	 * 这个值必须和 ServerConfigPanel/LocalConfigPanel 里 renderExtra 用的
+	 * lineSpacing（18px）保持同步——如果以后改了那边的行距或行数，这里也要
+	 * 跟着调整，否则控件区和提示文字区又会重新出现"共享同一条边界线导致
+	 * 视觉重叠"的问题（这正是本次改动之前的实际状况，见 9.2 系列踩坑记录）。
+	 */
+	private static final int BOTTOM_HINT_AREA_HEIGHT = 54;
 
 	private final Screen parent;
 
@@ -56,7 +70,11 @@ public class MCCFConfigScreen extends Screen {
 		int contentLeft = MARGIN;
 		int contentTop = MARGIN + TAB_BAR_HEIGHT + TAB_BAR_GAP;
 		int contentRight = this.width - MARGIN;
-		int contentBottom = this.height - MARGIN;
+		// 控件区底边不再直接贴到屏幕底部——预留 BOTTOM_HINT_AREA_HEIGHT 的空间给
+		// 提示文字，避免"最后一行按钮"和"底部提示文字"共用同一条 y 坐标基准线
+		// 而相互覆盖（原设计的疏漏：两者都以 this.height - MARGIN 为基准，一个
+		// 往下排列控件，一个往上排列文字，行数一多就会在中间撞上）。
+		int contentBottom = this.height - MARGIN - BOTTOM_HINT_AREA_HEIGHT;
 
 		// 标签栏：两个等宽按钮并排在顶部。选中的标签用不同措辞高亮当前状态——
 		// Minecraft 原版 ButtonWidget 没有"激活态"的内建视觉，这里靠按钮文字加

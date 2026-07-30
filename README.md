@@ -1,5 +1,55 @@
 # MC Conversation Framework (MCCF)
 
+**[English README](README_EN.md)** | 简体中文（当前）
+
+---
+
+## 这是什么？能给我带来什么好处？
+
+你有没有在国际服里遇到过这种情况：外国玩家在世界频道打了一长串话，你完全看不懂；
+或者你想跟旁边的老外交易/组队，却因为语言不通只能互相打问号？
+
+**MCCF 就是解决这个问题的：装上它，服务器里说中文的和说英文的（以及日语、韩语、
+德语、法语、西班牙语、俄语等）玩家可以直接用各自的母语聊天，其他人看到的会自动是
+翻译好的内容。** 不需要开着翻译软件来回复制粘贴，聊天这件事本身就是"无缝"的。
+
+它还做了几件让这套翻译更"沉浸"、更贴近真实说话的事：
+
+- **翻译只给听得到的人看**：不是全服广播式的翻译，而是按游戏内实际的距离/是否
+  被墙挡住来决定谁能"听到"这句话——离得近能看到文字浮在说话人头顶，离得远看不到人
+  只能听到就显示在物品栏上方，跟真实说话的感觉一致，不会出现"全服都看到你在哪个
+  角落嘀咕"的尴尬。
+- **翻译服务你自己选，自己的 Key 自己填**：支持接入 OpenAI、Claude、Gemini、DeepL、
+  Kimi、DeepSeek，也支持完全本地免费跑的 Ollama——服主可以在游戏内一个设置界面里
+  切换和管理，不需要碰配置文件、不需要重启服务器。
+- **不想让服务器统一管翻译？** 也可以只装客户端、自己配置翻译服务，不依赖服主
+  是否安装了这个模组（详见下方"纯客户端模式"）。
+- **错过的对话可以回看**：字幕会自动消失，但游戏里有一个"聊天历史记录"界面，
+  能翻看这局游戏里发生过的所有对话，还会自动按"这是一段对话"分组显示，方便回顾。
+
+## 怎么使用？
+
+1. **下载**：去 [GitHub Release](../../releases/latest) 下载最新的 `.jar` 文件
+   （或者在 CurseForge / Modrinth 上搜索本模组）。
+2. **安装**：把下载的 `.jar` 放进 Minecraft 的 `mods` 文件夹。
+   - 如果你是**服主**：服务器和你自己的客户端都需要装，才能获得完整的"空间化翻译"
+     体验（谁能听到谁听不到、字幕悬浮位置等）。
+   - 如果你只是**普通玩家**、连的服务器没装这个模组：你自己单独装客户端也能用——
+     会自动切换成"纯客户端模式"，本地把聊天栏文字翻译给你自己看，见下方说明。
+3. **同时装好 [Fabric API](https://modrinth.com/mod/fabric-api)**（必需）和
+   [Fabric Loader](https://fabricmc.net/use/)。可选装
+   [ModMenu](https://modrinth.com/mod/modmenu) 获得图形化设置入口。
+4. **进游戏后配置翻译服务**：按 `Esc` 打开暂停菜单，点"聊天历史记录"旁边的设置
+   入口（或用 ModMenu 打开"MCCF"的设置），选择一个翻译服务（比如 DeepL 或 OpenAI）
+   填入你自己的 API Key 即可开始使用。
+5. 不知道该填什么、遇到问题，或者想了解更详细的功能范围/开发细节，
+   请继续阅读下面的技术文档，或前往
+   [GitHub Issues](../../issues) 反馈。
+
+---
+
+## 技术简介
+
 面向 Minecraft 多人服务器的沉浸式跨语言交流基础设施。核心链路：
 文字聊天拦截 → 空间化听觉判定（距离 + 射线遮挡）→ 动态对话上下文（Conversation）
 → 可插拔翻译 Provider（OpenAI/Claude/Gemini/DeepL/Kimi/DeepSeek/Ollama）
@@ -60,7 +110,8 @@ https://gradle.org/releases/ → 找 8.8 → 解压后用它的 `bin/gradle` 执
 cd MC-Conversation-Framework-1.21.1
 gradle build          # 或 ./gradlew build（如果已生成 wrapper）
 ```
-构建产物在 `build/libs/MCConversationFramework-0.2.0.jar`，把它丢进服务器和客户端的 `mods/` 文件夹即可
+构建产物在 `build/libs/MCConversationFramework-<版本号>.jar`（版本号见
+`gradle.properties` 里的 `mod_version`，例如当前是 `0.8.0`），把它丢进服务器和客户端的 `mods/` 文件夹即可
 （服务器和客户端都要装，因为这是一个同时含服务端逻辑和客户端渲染的模组）。
 
 同时确保服务器和客户端都装了对应版本的 **Fabric API**（`0.116.15+1.21.1` 或更高的
@@ -331,6 +382,100 @@ src/client/java/net/mccf/mod/client/
 ---
 
 ## 八、更新日志
+
+### 2026-07-30　0.9.0 优化：配置界面提示文字位置 + 修复潜在的文字/控件重叠
+
+响应用户反馈"提示文字位置不合理"，重新梳理了 `ServerConfigPanel` /
+`LocalConfigPanel` 底部提示文字的排布，顺带修了一个原设计就存在但一直没
+被处理的潜在重叠问题。
+
+**1.（真实 bug 修复）控件区与底部提示文字共用同一条基准线，行数一多会重叠**
+- 根因：`MCCFConfigScreen.init()` 里 `contentBottom = this.height - MARGIN`，
+  这个值同时作为"右侧设置区最后一行控件的下边界"（传给 Panel 的 `bottom`
+  参数）和"底部提示文字区域"的坐标基准（Panel 的 `renderExtra` 里
+  `screenBottom = screen.height - 20`，与 `contentBottom` 数值相同）——
+  一个从上往下排列控件，一个从下往上排列文字，行数一多（`LocalConfigPanel`
+  最多时是"Provider 说明 + 强制服务器模式警告（可能换行）+ 检测状态 +
+  操作状态消息"四行）就会在中间区域视觉重叠。
+- 修复：新增 `MCCFConfigScreen.BOTTOM_HINT_AREA_HEIGHT`（54px，按最多 3 行
+  提示文字 × 18px 行距预留），`contentBottom` 计算改为
+  `this.height - MARGIN - BOTTOM_HINT_AREA_HEIGHT`，让控件区和提示文字区
+  拥有独立的、不重叠的空间。两个标签页统一按这个值预留（即使
+  `ServerConfigPanel` 只用得上 2 行），保证切换标签页时控件区下边界位置
+  一致，不会有界面"跳动"的感觉。
+
+**2. 提示文字间距拉开**
+- `ServerConfigPanel` 和 `LocalConfigPanel` 的底部提示文字统一改为 18px
+  固定行距（原来是 12～16px 不等，多行时显得拥挤），两个面板保持一致的
+  视觉风格。
+
+**3.（交互改造）"强制服务器模式但未检测到服务器"从常驻警告文字改成拦截式确认弹窗**
+- 原设计：这条警告是一段常驻渲染在 `LocalConfigPanel` 底部的红色文字，
+  动态换行、行数不固定，容易被忽略，也是上面提到的重叠问题的主要诱因之一
+  （换行行数不确定，没法在排布其他行时预留出准确空间）。
+- 新设计：只在玩家点击"保存"、且当前选择结算为"强制服务器模式"、且
+  客户端确实检测不到服务器已安装 MCCF 时，弹出 Minecraft 原版风格的
+  `ConfirmScreen`（与"连接不受信任服务器"用的是同一种确认弹窗），标题+
+  正文说明后果，玩家需要点"是"才会真正执行保存，点"否"或直接关闭弹窗
+  则取消本次保存、已填写的其他字段（API Key、模型名等）原样保留在界面上。
+  这不是"仅供参考"的风险提示，而是"确定会出问题"的操作后果，弹窗拦截
+  比常驻文字更能确保玩家真的看到并做出选择。
+- `ConfirmScreen` 用的是最基础的 3 参数构造函数
+  （`BooleanConsumer, Text, Text`），按钮固定显示原版"是/否"文案——
+  1.21.1 环境下没有可核对的本地反编译源码，`ConfirmScreen` 支持自定义
+  按钮文字的重载在不同 Minecraft 版本间签名有过变化，贸然使用有编译
+  失败风险，故未采用；语言文件里为此预留过 `warn_force_server_proceed`/
+  `warn_force_server_cancel` 两个键，因为改用基础版本没有用上而移除。
+- 弹窗正文复用已有的 `mccf.localconfig.warn_force_server_no_mod` 翻译键
+  （原本就是常驻警告文字的内容，文案本身适合直接作为弹窗正文，未改动），
+  新增 `mccf.localconfig.warn_force_server_title`（弹窗标题），9 种语言
+  均已补全。
+
+版本号 `0.8.0` → `0.9.0`（按 9.1 规则升 minor：功能性修复 + 交互改造）。
+
+### 2026-07-30　0.8.0 新增：英文 README + GitHub Actions 自动发布工作流
+
+面向开源发布的准备工作：项目要发布到 GitHub 并上传 CurseForge / Modrinth，
+需要一份英语玩家能看懂的说明，以及打 tag 后自动编译打包发布的 CI 流程。
+
+**1. 中文 README 顶部新增面向玩家的介绍板块**
+- 原 README 开头直接是技术术语堆砌（"空间化听觉判定"、"可插拔翻译
+  Provider"……），普通玩家大概率看不下去。新增"这是什么？能给我带来什么
+  好处？"和"怎么使用？"两节，用大白话说明模组解决什么问题、有什么亮点、
+  怎么下载安装配置，原技术内容整体下移到"技术简介"小节，不做任何删减。
+- 顺手修正了一处过时的硬编码版本号（`构建产物在 build/libs/
+  MCConversationFramework-0.2.0.jar` 早就不是当前版本号了），改为引用
+  `gradle.properties` 里的 `mod_version`，避免以后每次发版都要手动改这一处。
+
+**2. 新增英文 README（`README_EN.md`）**
+- 不是逐行对照翻译（1000+ 行的技术细节、开发过程记录、注释规范这些内容
+  对英语玩家实际帮助有限，逐行翻译且长期双语同步维护的成本也过高，容易
+  两份文档越改越不一致）。而是聚焦"这是什么 / 有什么好处 / 怎么用 / 几条
+  必须知道的注意事项"这个玩家最需要的部分，完整认真地写（不是中文版的
+  缩水版），末尾链接回中文版作为完整技术参考。
+- 中英两个 README 顶部互相有跳转链接（当前语言用加粗标出，另一语言是链接）。
+
+**3. 新增 GitHub Actions 工作流（`.github/workflows/release.yml`）**
+- 触发策略：push 到 `main` 只编译 + 跑测试（验证代码没坏，不发布）；
+  push 一个 `v*.*.*` 格式的 tag（如 `v0.8.0`）才会编译 + 打包 + 自动创建
+  GitHub Release 并附带 jar；也支持 `workflow_dispatch` 手动触发（用于调试
+  workflow 本身，行为等同于 push 到 main，只编译不发布）。
+- 两个 job：`build`（编译 + 跑 `RateLimiterTest` 等单元测试 + 定位并上传
+  构建产物）和 `release`（仅 tag 触发，下载构建产物、校验 tag 版本号与
+  `gradle.properties` 里的 `mod_version` 一致、提取对应版本的更新日志、
+  创建 Release）。
+- 新增 `.github/scripts/extract_changelog.py`：从本 README 的"八、更新
+  日志"章节里，按版本号精确匹配对应的 `### YYYY-MM-DD　<版本号> ...`
+  标题行，截取到下一条日志之前的内容，作为 Release Notes 自动填充。找不到
+  对应版本号时会让 workflow 显式失败（而不是发布一个空描述的 Release），
+  提醒开发者：**打 tag 前必须先在 README 更新日志里补好对应版本号的条目**，
+  这是本次新增的一条硬性前置步骤，不遵守会导致 Release 发布失败。
+- CurseForge / Modrinth 的自动上传本次**没有**加入 workflow——这两个平台
+  目前是手动上传，工作流只负责 GitHub Release 这一部分。
+
+版本号 `0.7.0` → `0.8.0`（按 9.1 规则升 minor：新增项目基础设施——CI 工作流
+和面向发布的文档，参照 0.1.0→0.2.0 那次"JAR 命名 + 版本号策略"的先例，
+非代码逻辑但属于新增基础设施，同样记为 minor 而非 patch）。
 
 ### 2026-07-30　0.7.0 修复：聊天历史界面行高 bug（一句话占满屏）+ 新增对话分组
 
