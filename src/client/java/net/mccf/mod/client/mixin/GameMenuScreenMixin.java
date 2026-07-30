@@ -2,6 +2,7 @@ package net.mccf.mod.client.mixin;
 
 import net.mccf.mod.client.config.ChatHistoryScreen;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.Element;
 import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -38,12 +39,23 @@ public abstract class GameMenuScreenMixin extends Screen {
 
 	@Inject(method = "initWidgets", at = @At("TAIL"))
 	private void mccf$addChatHistoryButton(CallbackInfo ci) {
-		// 按钮位置：在原版按钮组下方追加一行。原版暂停菜单左列从 height/4 - 16 开始，
-		// 每行间距 24，最后一行（Open to LAN / Quit Game）大约在 height/4 + 80。
-		// 这里在 height/4 + 104 追加一行，和原版最后一行留 24 像素间距，不重叠。
-		// 宽度 204 跨两列（原版每列宽 98，中间间距 8），视觉上是一个完整的横条按钮。
+		// 动态计算按钮 Y 坐标：遍历原版已添加的所有子元素，找到最底部的那个，
+		// 在它下方 4 像素处放置我们的按钮。这样无论原版布局怎么变（单人/多人、
+		// 不同版本间距调整、其他模组也注入了按钮），都不会和原版按钮重叠。
+		//
+		// 之前用固定 y = height/4 + 104，实测在某些布局下和"保存并回到标题屏幕"
+		// 按钮重叠——原版按钮的实际位置和文档/记忆里的可能有出入，硬编码 Y 太脆弱。
+		int maxBottom = 0;
+		for (Element child : this.children()) {
+			if (child instanceof net.minecraft.client.gui.widget.ClickableWidget widget) {
+				int bottom = widget.getY() + widget.getHeight();
+				if (bottom > maxBottom) {
+					maxBottom = bottom;
+				}
+			}
+		}
 		int buttonX = this.width / 2 - 102;
-		int buttonY = this.height / 4 + 104;
+		int buttonY = maxBottom + 4;
 		this.addDrawableChild(ButtonWidget.builder(
 						Text.translatable("mccf.history.button"),
 						button -> MinecraftClient.getInstance().setScreen(new ChatHistoryScreen(this)))
