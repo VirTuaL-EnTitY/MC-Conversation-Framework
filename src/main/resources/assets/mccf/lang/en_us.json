@@ -80,6 +80,7 @@
 	"mccf.config.activate_pending": "Marked for activation. Press \"Save\" to apply.",
 
 	"mccf.history.title": "Chat History",
+	"mccf.history.button": "Chat History",
 	"mccf.history.close": "Close",
 	"mccf.history.empty": "No chat history yet.",
 	"mccf.history.source.self": "Me",

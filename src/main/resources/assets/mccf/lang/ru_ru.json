@@ -80,6 +80,7 @@
 	"mccf.config.activate_pending": "Помечено для активации. Нажмите «Сохранить», чтобы применить.",
 
 	"mccf.history.title": "История чата",
+	"mccf.history.button": "История чата",
 	"mccf.history.close": "Закрыть",
 	"mccf.history.empty": "История чата пока пуста.",
 	"mccf.history.source.self": "Я",

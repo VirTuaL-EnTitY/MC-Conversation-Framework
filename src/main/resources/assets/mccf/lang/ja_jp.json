@@ -80,6 +80,7 @@
 	"mccf.config.activate_pending": "有効化待ちとしてマークしました。「保存」を押すと反映されます。",
 
 	"mccf.history.title": "チャット履歴",
+	"mccf.history.button": "チャット履歴",
 	"mccf.history.close": "閉じる",
 	"mccf.history.empty": "チャット履歴はまだありません。",
 	"mccf.history.source.self": "自分",

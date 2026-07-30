@@ -24,7 +24,9 @@
 			"net.mccf.mod.client.config.MCCFModMenuIntegration"
 		]
 	},
-	"mixins": [],
+	"mixins": [
+		"mccf.client.mixins.json"
+	],
 	"depends": {
 		"fabricloader": ">=0.15.11",
 		"minecraft": "~1.21.1",

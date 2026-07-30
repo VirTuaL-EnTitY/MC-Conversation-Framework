@@ -80,6 +80,7 @@
 	"mccf.config.activate_pending": "활성화 대기로 표시됨. 「저장」을 누르면 적용됩니다.",
 
 	"mccf.history.title": "채팅 기록",
+	"mccf.history.button": "채팅 기록",
 	"mccf.history.close": "닫기",
 	"mccf.history.empty": "채팅 기록이 아직 없습니다.",
 	"mccf.history.source.self": "나",

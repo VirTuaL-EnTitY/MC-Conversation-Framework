@@ -80,6 +80,7 @@
 	"mccf.config.activate_pending": "Marcado para activación. Pulsa «Guardar» para aplicar.",
 
 	"mccf.history.title": "Historial de chat",
+	"mccf.history.button": "Historial de chat",
 	"mccf.history.close": "Cerrar",
 	"mccf.history.empty": "Aún no hay historial de chat.",
 	"mccf.history.source.self": "Yo",

@@ -80,6 +80,7 @@
 	"mccf.config.activate_pending": "已标记为待启用，点“保存”后生效。",
 
 	"mccf.history.title": "聊天历史记录",
+	"mccf.history.button": "聊天历史记录",
 	"mccf.history.close": "关闭",
 	"mccf.history.empty": "暂无聊天历史记录。",
 	"mccf.history.source.self": "我",

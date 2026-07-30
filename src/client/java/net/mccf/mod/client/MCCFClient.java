@@ -234,6 +234,11 @@ public class MCCFClient implements ClientModInitializer {
 				}
 			}
 		});
+
+		// 暂停菜单（Esc 菜单）的"聊天历史记录"按钮入口通过 Mixin 注入，见
+		// GameMenuScreenMixin。不在这里用 ScreenEvents.afterInit 是因为
+		// Screen.addDrawableChild 是 protected，外部包无法调用——Mixin 把代码
+		// 注入到 GameMenuScreen 内部才能合法调用 protected 方法。
 	}
 
 	private String detectClientLanguage(MinecraftClient client) {
