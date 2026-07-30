@@ -5,12 +5,12 @@ import net.mccf.mod.MCCF;
 import net.mccf.mod.client.config.ClientOnlyTranslationConfig;
 import net.mccf.mod.client.mode.ClientOnlyModeManager;
 import net.mccf.mod.translation.provider.ProviderFactory;
+import net.mccf.mod.util.RateLimiter;
 import net.mccf.mod.translation.provider.TranslationProvider;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 纯客户端模式下的聊天翻译：不做任何空间化听觉判定（没有服务端参与，做不到
@@ -87,7 +87,7 @@ public final class ClientOnlyChatTranslator {
 			return;
 		}
 
-		if (!tryAcquireRateLimit()) {
+		if (!rateLimiter.tryAcquire()) {
 			MCCF.LOGGER.warn("[MCCF] Client-only translation rate limit exceeded, skipping: {}",
 					sourceText.length() > 80 ? sourceText.substring(0, 80) + "..." : sourceText);
 			return;
@@ -150,40 +150,20 @@ public final class ClientOnlyChatTranslator {
 	}
 
 	/**
-	 * 简单的固定窗口限流：每秒最多放行 {@value #MAX_REQUESTS_PER_SECOND} 条翻译请求，
-	 * 超出返回 false 让调用方跳过。
+	 * 纯客户端翻译的速率限制器：每秒最多 5 条翻译请求。
+	 *
+	 * 限流逻辑已抽取到 {@link RateLimiter}，这里只持有实例并调用 tryAcquire()。
+	 * 抽取的原因：限流逻辑是纯并发控制，不依赖任何 Minecraft 类，混在
+	 * ChatTranslator 里无法单独测试。抽成独立类后可以写 JUnit 测试覆盖
+	 * 并发竞争和窗口边界场景。
 	 *
 	 * 为什么限流 5 条/秒：大部分翻译 API 的免费 tier 限制在每秒个位数请求（OpenAI
 	 * 免费 key 约 20 RPM、DeepL 免费档短时并发也有限制），5 条是保守值。超出会触发
 	 * 429 速率限制甚至临时封 Key——QA 报告的 M8 级问题就是玩家在聊天刷屏时本地翻译
 	 * 狂调 API 导致 Key 被封。限流后超出的消息直接丢弃，玩家最多少看几条翻译，
 	 * 不会影响游戏功能。
-	 *
-	 * 为什么用固定窗口而不是滑动窗口：固定窗口实现简单，最坏情况下窗口边界附近
-	 * 可能放过接近 2 倍上限的请求（窗口末尾 5 条 + 新窗口开头 5 条），但聊天刷屏
-	 * 本来就是异常行为，精确限流意义不大；滑动窗口要维护时间戳队列，开销和复杂度
-	 * 都更高，不值当。
 	 */
-	private static final AtomicInteger requestCount = new AtomicInteger(0);
-	private static volatile long windowStartMillis = 0L;
-	private static final int MAX_REQUESTS_PER_SECOND = 5;
-
-	private static boolean tryAcquireRateLimit() {
-		long now = System.currentTimeMillis();
-		long windowStart = windowStartMillis;
-		if (now - windowStart >= 1000L) {
-			// 窗口过期，重置。用 synchronized 保证"重置时间戳 + 清零计数"是原子的，
-			// 否则两个线程可能同时进入重置分支，计数被清零两次但时间戳只前进一次，
-			// 导致窗口内实际放过超过上限的请求。双检查避免重复重置。
-			synchronized (ClientOnlyChatTranslator.class) {
-				if (now - windowStartMillis >= 1000L) {
-					windowStartMillis = now;
-					requestCount.set(0);
-				}
-			}
-		}
-		return requestCount.incrementAndGet() <= MAX_REQUESTS_PER_SECOND;
-	}
+	private static final RateLimiter rateLimiter = new RateLimiter(1000L, 5);
 
 	private static String detectClientLanguage(MinecraftClient client) {
 		String language = client.options.language;

@@ -332,6 +332,36 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-07-30　0.6.2 新增：RateLimiter 单元测试 + 限流逻辑抽取
+
+把 `ClientOnlyChatTranslator` 里的固定窗口限流逻辑抽取到独立的 `RateLimiter` 类
+（`net.mccf.mod.util.RateLimiter`），并写了 JUnit 5 单元测试覆盖以下场景：
+
+1. **单线程基本限流**：窗口内前 N 条放行，超出拒绝
+2. **窗口过期重置**：等待窗口过期后重新放行
+3. **并发竞争**：50 个线程同时调用，放行数不超过 maxRequests（核心断言——
+   检测 synchronized/双检查是否有并发缺陷）
+4. **构造器参数校验**：非正数参数抛 IllegalArgumentException
+5. **currentCount 准确性**：被拒绝的请求也计入计数
+
+为什么只测限流不测缓存：`TranslationService` 的缓存逻辑需要 mock
+`TranslationProvider` + `WorldDictionary`，mock 代码量可能超过测试价值。
+限流逻辑是纯并发控制、不依赖任何 MC 类，抽取后可以直接测，收益比最高。
+并发竞争场景（50 线程同时调用）是手动测试几乎无法覆盖的——如果 synchronized/
+双检查有缺陷，这个测试会在 CI 里立刻报警。
+
+新增文件：
+- `src/main/java/net/mccf/mod/util/RateLimiter.java` — 限流器
+- `src/test/java/net/mccf/mod/util/RateLimiterTest.java` — 单元测试
+
+修改文件：
+- `ClientOnlyChatTranslator.java` — 移除内部限流逻辑，改用 `RateLimiter` 实例
+- `build.gradle` — 加 JUnit 5 依赖 + `test { useJUnitPlatform() }`
+
+运行测试：`gradle test`（不需要进游戏，不需要 Minecraft 运行时）
+
+版本号 `0.6.1` → `0.6.2`（minor：新增测试基础设施 + 重构）。
+
 ### 2026-07-30　0.6.1 新增：暂停菜单入口 + 修复聊天历史记录找不到入口
 
 聊天历史记录界面（0.5.0 引入）之前只有快捷键入口（默认未绑定），玩家在游戏内

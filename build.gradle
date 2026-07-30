@@ -49,6 +49,10 @@ dependencies {
 	modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
 
 	// Gson is bundled with Minecraft, used here for config / dictionary serialization.
+
+	// JUnit 5 for unit testing pure-logic classes (RateLimiter, cache, etc.)
+	// Minecraft-dependent code (rendering, GUI, networking) is tested manually.
+	testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 
 processResources {
@@ -77,6 +81,10 @@ jar {
 	from("LICENSE") {
 		rename { "${it}_${project.base.archivesName.get()}" }
 	}
+}
+
+test {
+	useJUnitPlatform()
 }
 
 // configure the maven publication
