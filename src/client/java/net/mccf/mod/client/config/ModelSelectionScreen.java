@@ -71,7 +71,7 @@ public class ModelSelectionScreen extends Screen {
 	@Override
 	protected void init() {
 		listWidget = new ModelListWidget(MinecraftClient.getInstance(),
-				this.width, this.height, 40, this.height - 40, 14);
+				this.width, 40, this.height - 40, 14);
 		for (String model : models) {
 			boolean isCurrent = model.equals(currentModel);
 			listWidget.addEntry(new ModelEntry(model, isCurrent, this::onModelSelected));
@@ -109,10 +109,13 @@ public class ModelSelectionScreen extends Screen {
 
 	/** 列表 widget：负责管理 entry 的渲染与滚动。 */
 	private static class ModelListWidget extends AlwaysSelectedEntryListWidget<ModelEntry> {
-		public ModelListWidget(MinecraftClient client, int width, int height, int top, int bottom, int itemHeight) {
-			// 1.21.1 上父类构造器是 5 参数（无 itemHeight）；itemHeight 参数保留在
-			// 本构造器签名里是为了 API 兼容/未来扩展，目前忽略不用。
-			super(client, width, height, top, bottom);
+		// 1.21.1 的 EntryListWidget 构造函数是 (client, width, height, y, itemHeight)：
+		// 第 4 参数是列表顶部 y，第 5 参数是 itemHeight（行高），没有 bottom 参数
+		// （列表底部 = y + height）。保留 top/bottom 语义方便 Screen 传入，内部换算。
+		// 历史踩坑：曾误把第 5 参数当 bottom，导致 itemHeight = this.height-40（巨大），
+		// 每条模型占满整屏；详见 ChatHistoryScreen.HistoryListWidget 注释与 README 0.7.0。
+		public ModelListWidget(MinecraftClient client, int screenWidth, int top, int bottom, int itemHeight) {
+			super(client, screenWidth, bottom - top, top, itemHeight);
 		}
 
 		/** 把父类的 protected addEntry 暴露给 Screen 使用。返回值为新加入条目的索引。 */

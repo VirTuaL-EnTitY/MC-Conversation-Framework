@@ -13,10 +13,16 @@ import java.util.function.Consumer;
  * 左侧 Provider 列表，两个标签页（服务端配置 / 本地设置）共用同一套组件，
  * 保证视觉风格一致。
  *
- * 1.21.1 上 {@link net.minecraft.client.gui.widget.AlwaysSelectedEntryListWidget}
- * 的 {@code itemHeight} 不可配置（固定 36px），且 {@link net.minecraft.client.gui.widget.EntryListWidget}
- * 没有 x 坐标参数，会贴到屏幕最左边。本类改用 {@link ClickableWidget} 自行绘制
- * 紧凑列表，行高 20px，并正确对齐到配置面板左侧。
+ * 1.21.1 上 {@link net.minecraft.client.gui.widget.EntryListWidget} 的列表内容
+ * 会贴到屏幕最左边（{@code getRowLeft()} 默认返回靠左的固定偏移，没有让列表对齐
+ * 到配置面板区域的 x 参数），且 itemHeight 虽可在构造时指定但仍是列表级统一、
+ * 不支持每条目不同高度。本类改用 {@link ClickableWidget} 自行绘制紧凑列表，
+ * 行高 20px，并正确对齐到配置面板左侧。
+ *
+ * 历史踩坑修正（2026-07）：原注释写"itemHeight 不可配置（固定 36px）"是误判——
+ * 1.21.1 的构造函数第 5 参数就是 itemHeight，可配置；当时误把第 5 参数当 bottom，
+ * 才以为行高被锁死在某个大值。详见 ChatHistoryScreen.HistoryListWidget 注释。
+ * 本类改用自绘的另一个理由（getRowLeft 贴左、无法对齐面板）依然成立，所以实现不改。
  *
  * 交互：
  * - 点击某一行 = 仅切换"当前选中查看/编辑"的 Provider，不等于立即启用，

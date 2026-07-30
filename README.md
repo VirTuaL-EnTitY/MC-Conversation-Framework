@@ -332,6 +332,36 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-07-30　0.7.0 修复：聊天历史界面行高 bug（一句话占满屏）+ 新增对话分组
+
+**问题 1（严重 bug）：聊天历史界面一条消息占满整个屏幕**
+- 根因：1.21.1 的 `AlwaysSelectedEntryListWidget` / `EntryListWidget` 构造函数签名是
+  `(client, width, height, y, itemHeight)`（yarn 1.21.1+build.3 实测 + 在线 javadoc 核对），
+  第 5 参数是 **itemHeight（行高）**，不是 bottom。但 `ChatHistoryScreen` 与
+  `ModelSelectionScreen` 误以为是老版本 `(client, width, height, top, bottom)`，把
+  `this.height - 40`（本应是 bottom）传成了 itemHeight，导致每条记录行高 = 整个列表
+  区域高度，一屏只能看到一条消息——这正是用户反馈"一句话占用整个界面"的根因。
+- 这是项目早期"1.21.1 itemHeight 不可配置"这一误判的延续：反编译 jar 只能看到参数类型
+  `(client, int, int, int, int)` 看不到参数名，叠加"1.20.x 是 6 参数 (top,bottom,itemHeight)"
+  的先入为主，把第 5 参数想成了 bottom。实际上 itemHeight 一直可配置，只是被误用了。
+- 修复：`HistoryListWidget` / `ModelListWidget` 构造函数保留 top/bottom 语义方便传入，
+  内部换算成 `super(client, width, bottom-top, top, itemHeight)`。行高设 12px（单行 9px
+  + 上下 padding），一屏可显示十几条。
+- 同时纠正 `ProviderListWidget`、`ChatHistoryScreen`、`ModelSelectionScreen` 注释及本
+  README 中 4 处关于"itemHeight 固定 36px 不可配置"的错误陈述（见 9.2.5 修正）。
+
+**问题 2（功能）：历史界面新增"对话分组"显示谁和谁的聊天**
+- 消息按时间间隔聚类成对话组（相邻间隔超 30 秒视为新对话），每组顶部显示参与者标题：
+  多人参与显示"A、B、C 的对话"（绿色 + 浅绿背景），单人连续发言显示"X 的自言自语"
+  （灰色 + 浅灰背景）。
+- 分组纯客户端按时间推断，不依赖服务端 Conversation——纯客户端模式没有服务端分组
+  信息可用，统一用时间聚类避免两套数据源/两套渲染逻辑。代价是边界不够精确（两个
+  间隔不足 30 秒的独立对话会被合并、一个沉默超 30 秒的长对话会被拆开），对"回看个
+  大概"可接受，不满意可调 `GROUP_GAP_MS`。
+- 涉及文件：`ChatHistoryScreen.java`（行高修正 + 分组渲染 + 新增 `GroupHeaderWidget`）、
+  `ModelSelectionScreen.java`（行高修正）、`ProviderListWidget.java`（注释勘误）。
+- **版本号**：含 bug 修复 + 新功能，按 9.1 规则升 minor：`0.6.2` → `0.7.0`。
+
 ### 2026-07-30　0.6.2 新增：RateLimiter 单元测试 + 限流逻辑抽取
 
 把 `ClientOnlyChatTranslator` 里的固定窗口限流逻辑抽取到独立的 `RateLimiter` 类
@@ -460,9 +490,10 @@ src/client/java/net/mccf/mod/client/
   （自己回显 SELF / VISIBLE / AUDIBLE 三分支）、`ClientOnlyChatTranslator`
   （纯客户端模式下自己发的消息 SELF、翻译完成后的 CLIENT_ONLY）。
 - 新增 `ChatHistoryScreen`：只读、可滚动的历史记录列表，按时间倒序展示。
-  受限于 1.21.1 的 `AlwaysSelectedEntryListWidget` 行高固定（不支持
-  `itemHeight` 自定义，该参数 1.21.8 才引入），每条记录压缩成单行
-  `[来源] 说话者: 原文 ⇄ 译文`，右侧对齐时间戳，超宽裁剪加省略号。
+  每条记录压缩成单行 `[来源] 说话者: 原文 ⇄ 译文`，右侧对齐时间戳，超宽裁剪加省略号。
+  > ⚠️ 此处原写"1.21.1 行高固定、不支持 itemHeight 自定义（1.21.8 才引入）"是误判：
+  > 1.21.1 构造函数第 5 参数本就是 itemHeight，当时误当 bottom 用导致行高=列表高度。
+  > 已于 0.7.0 修正，详见该条目与 9.2.5。
 - 两个入口：主配置界面新增"聊天历史记录"按钮（`mccf.config.chat_history`），
   以及独立按键绑定 `key.mccf.open_history`（默认未绑定，同 `openConfigKey`
   的约定，需要玩家自己在按键设置里指定）。两个入口都不受 op 权限限制——
@@ -665,6 +696,9 @@ Provider 名称（OpenAI/Claude/Gemini 等）保留原名，括号里的公司�
 `WorldRenderEvents.AFTER_ENTITIES`、`KeyBinding` 字符串分类 + `wasPressed()`、
 `ClientReceiveMessageEvents.CHAT` 5 参数签名、`AlwaysSelectedEntryListWidget` 构造器
 ——后者在 1.21.1 上是 5 参数，1.21.8 扩为 6 参数，也已修复）均核对完毕。
+> ⚠️ 此处对 5 参数构造器的语义判断有误：1.21.1 的 5 参数是
+> `(client, width, height, y, itemHeight)`，第 5 参数是 itemHeight 不是 bottom。
+> 当时误当 bottom 导致行高 bug，已于 0.7.0 修正，详见该条目与 9.2.5。
 
 ### 2026-07-28　记入注释风格规范 + 新增"已确认规则"章节
 - 用户要求参考 Claude 的注释风格，把以下 6 条规则记入项目规则：
@@ -715,6 +749,9 @@ Provider 名称（OpenAI/Claude/Gemini 等）保留原名，括号里的公司�
    `(client, w, h, top, bottom, itemHeight)` 改为 5 参数 `(client, w, h, top, bottom)`。
    1.21.1 上没有 `itemHeight` 参数，1.21.8 才加进来；本类的构造器签名保留
    `itemHeight` 参数（API 兼容），只是 `super(...)` 调用不再传它。
+   > ⚠️ 此条认知有误：1.21.1 的 5 参数构造器第 5 参数就是 itemHeight（不是 bottom），
+   > 上面"改为 5 参数 (client,w,h,top,bottom)"实际把 bottom 传给了 itemHeight，
+   > 导致每条记录行高=列表高度。已于 0.7.0 修正为正确换算，详见该条目与 9.2.5。
 
 **API 签名核实方式**：直接用 PowerShell + `System.IO.Compression.ZipFile`
 打开 `~/.gradle/caches/fabric-loom/minecraftMaven/.../minecraft-clientonly-1.21.1-...-v2.jar`
@@ -955,7 +992,7 @@ Minecraft 在玩家**调整游戏窗口大小**时也会对所有当前打开的
   - `PacketCodecs.BOOL`（1.21.1）↔ `PacketCodecs.BOOLEAN`（1.21.8+）——`RequestConfigPayload.java`
   - `RenderTickCounter.getTickDelta(boolean)`（1.21.1）↔ `getTickProgress(boolean)`（1.21.8+）——`WorldSubtitleRenderer.java`
   - `HudRenderCallback.EVENT.register`（1.21.1）↔ `HudElementRegistry.addLast`（1.21.6+）——`MCCFClient.java` / `HotbarSubtitleRenderer.java`
-  - `AlwaysSelectedEntryListWidget` 构造器 5 参数（1.21.1）↔ 6 参数含 `itemHeight`（1.21.8+）——`ModelSelectionScreen.java`
+  - `AlwaysSelectedEntryListWidget` 构造器：1.21.1 是 5 参数 `(client, width, height, y, itemHeight)`（第 5 参数即 itemHeight），1.21.8+ 扩为 6 参数 `(client, width, height, y, bottom, itemHeight)`（重新加回 bottom）。**踩坑**：曾误判 1.21.1 第 5 参数为 bottom，把列表高度值传成 itemHeight 导致行高 bug（一句话占满屏），0.7.0 修正——`ModelSelectionScreen.java` / `ChatHistoryScreen.java`
   - `TextFieldWidget.setRenderTextProvider(BiFunction)`（1.21.1）替代已移除的 `setRenderPasswordReveal(boolean)`（1.20.x 及之前）——`MCCFConfigScreen.java` / `ClientOnlyConfigScreen.java`。1.21.1 没有"一行开启密码框"的开关，需自己传一个把字符替换成圆点的 `BiFunction`。
   - Java 源码注释中**不要写 `\uXXXX`**：Java 编译器在词法分析阶段（早于注释识别）就会处理 Unicode 转义，注释里的 `\uXXXX` 若 `X` 不是合法十六进制会报"非法的 Unicode 逃逸"。写 Unicode 码点请用 `U+XXXX` 形式——`HttpProviderSupport.java`。
 
