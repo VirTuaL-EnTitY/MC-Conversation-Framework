@@ -383,6 +383,69 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-07-30　0.11.0 提示文字迁移到左下角空白区 + 修复两处误导性状态显示（未连接检测行、无限期加载中）
+
+响应用户两轮反馈：(1) 提示文字挪到左侧 Provider 列表下方原本空置的区域；
+(2) 在此基础上暴露的两个真实问题——`LocalConfigPanel` 的服务器检测结果在
+没进入任何世界时也会显示，`ServerConfigPanel` 在服务器没装 MCCF 时会
+无限期卡在"正在加载配置"。
+
+**1. 提示文字布局：从屏幕底部居中改为左侧列表正下方左对齐**
+- 新增 `ProviderConfigPanel#renderLeftBottomHints`（父类方法，两个子类共用）：
+  接收若干行 `HintLine`（文字+颜色），在左侧 Provider 列表正下方左对齐、
+  从上往下排列，按 `LIST_WIDTH`（200px）自动换行——这个宽度比屏幕窄得多，
+  换行处理是必需的（原来"屏幕居中"版本可以假设一行能放下，这次不能）。
+- 返回值是"最后一行绘制完毕后的下一个可用 y 坐标"，供调用方在提示文字
+  之后紧接着放置其他元素（用于下面第 3 点的"重试"按钮定位），避免用
+  像素级硬编码"假设提示文字占几行"（换行行数是动态的，不同语言、不同
+  Provider 的文案长度不同，硬编码位置几乎肯定会出错）。
+- `MCCFConfigScreen.BOTTOM_HINT_AREA_HEIGHT` 从 54px 扩大到 100px，按
+  "Provider 说明最多 2 行 + 状态/超时提示最多 2 行 + 重试按钮 24px"的
+  最坏情况估算预留。
+
+**2.（真实 bug 修复）LocalConfigPanel 检测结果行在未连接时也显示**
+- 根因：`ClientOnlyModeManager.serverHasMod` 只在真正 `onJoinServer()` 时
+  才被赋值为探测结果，未连接任何服务器时保持默认的 `false`——这跟"连接了
+  但服务器确实没装"是同一个 `false`，界面上完全无法区分，于是主菜单/单机
+  存档下也会显示"服务器未检测到 MCCF"这种带有误导性的提示。
+- 修复：`LocalConfigPanel.renderExtra` 用 `MinecraftClient.getInstance()
+  .player != null` 判断"当前是否处于某个世界中"（Minecraft 客户端判断
+  "是否在游戏内"的标准方式，单人存档和联机服务器通用），未在任何世界中时
+  这一行整行不显示（空文本会被 `renderLeftBottomHints` 自动跳过），不需要
+  改动 `ClientOnlyModeManager` 本身的检测逻辑。
+
+**3.（真实 bug 修复）ServerConfigPanel 服务器未装 MCCF 时无限期显示"正在加载"**
+- 根因：`hasReceivedSnapshot` 只有收到服务端快照回包才会变 `true`，服务器
+  没装 MCCF 时——能连接、能发送 `RequestConfigPayload`，但服务端不认识
+  这个通道、永远不会回应——这个字段永远停在 `false`，界面因此永远显示
+  "正在加载配置"，没有任何超时或失败提示。
+- 修复：新增 `snapshotRequestedAtMillis`（请求发出时刻）和
+  `SNAPSHOT_TIMEOUT_MS`（5000ms）。三态判断替代原来的二态逻辑：
+  1) 从未发送过请求（未连接任何世界）——不显示任何加载/超时提示，留空；
+  2) 已发送、未超时——正常显示"加载中"；
+  3) 已发送、超过 5 秒仍未收到回包——判定为服务器未安装 MCCF 或无法连接，
+     改为红色提示文字 + 显示"重试"按钮。
+- 新增"重试"按钮（`retryButton`）：默认不可见不可交互（双重保险），只在
+  超时状态下出现，位置紧跟在提示文字下方（用 `renderLeftBottomHints` 的
+  返回值 + `ClickableWidget#setPosition` 每帧动态定位，而不是固定坐标——
+  原因同上，换行行数不固定）。点击后重新调用 `requestSnapshot()`，
+  重置超时计时。
+- 新增翻译键 `mccf.config.not_installed`（超时提示文案）和
+  `mccf.config.retry`（按钮文案），9 种语言均已补全。
+
+**4.（代码清理）移除两处死代码**
+- `ServerConfigPanel`/`LocalConfigPanel` 的 `renderExtra` 开头原来各有一句
+  `if (!tabVisible) return;`——经排查这句永远不会执行到：
+  `MCCFConfigScreen.render()` 只在 `activeTab` 匹配当前 Panel 时才会调用
+  它的 `render()`/`renderExtra()`，非活动标签页的 `renderExtra` 根本不会
+  被调用，`tabVisible` 在这个方法体内恒为 `true`。清理这两句死代码，
+  并在两个类的 `renderExtra` 开头加注释说明原因，避免以后又被人以为这个
+  判断有意义而依赖它。`ServerConfigPanel` 的 `retryButton` 可见性重置
+  改为在 `onTabVisibilityChanged`（真正会在切走标签页时触发的回调）里
+  处理，而不是放在不会被调用的 `renderExtra` 分支里。
+
+版本号 `0.10.0` → `0.11.0`（按 9.1 规则升 minor：两处真实 bug 修复 + UI 改动）。
+
 ### 2026-07-30　0.10.0 修复：Provider 列表 DeepSeek 消失（滚动缺失）+ 移除"设为默认"按钮，改为保存即生效
 
 **1.（真实 bug 修复）左侧 Provider 列表 DeepSeek 消失**

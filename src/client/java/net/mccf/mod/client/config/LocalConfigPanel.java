@@ -342,35 +342,39 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 
 	@Override
 	protected void renderExtra(DrawContext context, int mouseX, int mouseY, float delta) {
-		if (!tabVisible) return;
+		// 注：不需要在这里判断 tabVisible——见 ServerConfigPanel#renderExtra 的
+		// 同款注释，MCCFConfigScreen.render() 只在 activeTab 匹配时才会调用
+		// 到这里，非活动标签页时这个方法根本不会被执行。
 		var textRenderer = MinecraftClient.getInstance().textRenderer;
 		int centerX = screen.width / 2;
 
 		Text providerTitle = Text.translatable(ClientConfigState.providerNameKey(selectedProvider));
 		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, top - 14, Colors.WHITE);
 
-		// 底部提示区：三行从上到下依次是"Provider 说明 / 服务器检测状态 / 操作状态消息"，
-		// 固定间距 18px（比原来 4 行挤在一起时的 12-16px 间距更宽松，参照用户要求
-		// "保持在底部但拉开间距"）。"强制服务器模式但未检测到服务器"的警告不再在这里
-		// 常驻渲染——那个场景现在改成点"保存"时弹出的 ConfirmScreen 拦截式确认弹窗
-		// （见 onSave），因为那是"确定会出问题"而不是"仅供参考"的信息，弹窗式确认
-		// 比一段可能被忽略的常驻文字更能真正引起玩家注意，也顺带腾出了这里的空间，
-		// 不用再担心警告文字换行时挤占/覆盖其他两行的显示区域。
-		int screenBottom = screen.height - 20;
-		int lineSpacing = 18;
-		int line1Y = screenBottom - lineSpacing * 3;
-		int line2Y = screenBottom - lineSpacing * 2;
-		int line3Y = screenBottom - lineSpacing;
-
+		// 提示文字（Provider 说明 / 服务器检测状态 / 操作状态消息）挪到左侧
+		// Provider 列表正下方，左对齐、从上往下排——与 ServerConfigPanel 保持
+		// 一致的布局风格，见 ProviderConfigPanel#renderLeftBottomHints 的说明。
+		// "强制服务器模式但未检测到服务器"的警告不在这里渲染——那个场景改成
+		// 点"保存"时弹出的 ConfirmScreen 拦截式确认弹窗（见 onSave）。
 		Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
-		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, line1Y, Colors.LIGHT_GRAY);
 
-		Text detectedLine = Text.translatable(
-				ClientOnlyModeManager.isServerDetected() ? "mccf.localconfig.detected_yes" : "mccf.localconfig.detected_no");
-		context.drawCenteredTextWithShadow(textRenderer, detectedLine, centerX, line2Y, Colors.LIGHT_GRAY);
+		// 检测状态行：没有加入任何世界/服务器时，"服务器是否装了 MCCF"这个问题
+		// 根本无意义（serverHasMod 在未连接时恒为 false，跟"连接了但真的没装"
+		// 是同一个 false，界面上无法区分，此前就是这个原因导致主界面/单机模式下
+		// 也会显示"服务器未检测到 MCCF"这种带有误导性的提示）。用
+		// MinecraftClient.player 是否为 null 判断"当前是否处于某个世界中"——
+		// 这是 Minecraft 客户端判断"是否在游戏内"的标准方式，单人存档和联机
+		// 服务器通用。未在任何世界中时，这一行整行不显示（HintLine 空文本会被
+		// renderLeftBottomHints 自动跳过）。
+		boolean inWorld = MinecraftClient.getInstance().player != null;
+		HintLine detectedLine = inWorld
+				? new HintLine(Text.translatable(ClientOnlyModeManager.isServerDetected()
+						? "mccf.localconfig.detected_yes" : "mccf.localconfig.detected_no"), Colors.LIGHT_GRAY)
+				: new HintLine(Text.empty(), Colors.LIGHT_GRAY);
 
-		if (!statusMessage.getString().isEmpty()) {
-			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, line3Y, statusColor);
-		}
+		renderLeftBottomHints(context, left, bottom + 6,
+				new HintLine(providerDesc, Colors.LIGHT_GRAY),
+				detectedLine,
+				new HintLine(statusMessage, statusColor));
 	}
 }

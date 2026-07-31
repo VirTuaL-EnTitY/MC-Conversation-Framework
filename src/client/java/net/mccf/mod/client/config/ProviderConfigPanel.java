@@ -152,4 +152,62 @@ public abstract class ProviderConfigPanel {
 	protected void drawLabel(DrawContext context, Text text, int x, int y) {
 		drawLabel(context, text, x, y, Colors.WHITE);
 	}
+
+	/**
+	 * 单条提示信息：文字内容 + 颜色。用于 {@link #renderLeftBottomHints}。
+	 * 空文本（{@code text.getString().isEmpty()}）的行会被跳过，不占用垂直空间——
+	 * 调用方可以无脑传入"可能为空"的状态消息，不用自己先判断是否为空再决定传不传。
+	 */
+	protected record HintLine(Text text, int color) {}
+
+	/**
+	 * 在左侧 Provider 列表正下方绘制若干行提示文字（Provider 说明、检测状态、
+	 * 操作状态消息等），左对齐、从上往下排列，自动按 {@link #LIST_WIDTH} 换行。
+	 *
+	 * 为什么搬到这里而不是继续用屏幕底部居中：应用户明确要求——左侧列表下方
+	 * 那块区域（列表宽度 × 列表底部到屏幕底部）原本完全空置，提示文字挪过去
+	 * 既利用了空间，也让"这段提示是关于左侧列表选中的这个 Provider"这层
+	 * 关联在视觉上更直接（挨着列表，而不是远在屏幕正中）。
+	 *
+	 * 换行处理：`LIST_WIDTH`（200px）比屏幕宽度窄得多，部分语言的提示文案
+	 * （尤其英语，"Requires API Key. Free tier key ends with :fx" 这类）
+	 * 在这个宽度下几乎肯定需要换行，不像原来的"屏幕居中"版本可以假设一行
+	 * 能放下。这里用 {@code textRenderer.trimToWidth} 反复裁切实现手动换行——
+	 * 与 0.9.0 之前 LocalConfigPanel 里"强制服务器模式"警告文字的换行逻辑
+	 * 是同一种写法（那段代码后来因为改成 ConfirmScreen 弹窗被删除，这次是
+	 * 同一手法用在新的地方，不是重复踩坑）。
+	 *
+	 * @param x     左对齐起始 x 坐标（通常传 {@link #left}，即列表左边缘）
+	 * @param y     第一行的起始 y 坐标（通常是列表底部 {@link #bottom} 往下留一点间隙）
+	 * @param lines 要绘制的提示行，按顺序从上往下排列；某一行为空文本时整行跳过
+	 * @return 最后一行绘制完毕后的下一个可用 y 坐标——供调用方在提示文字之后
+	 *         紧接着放置其他元素（例如"重试"按钮）时使用，避免像素级硬编码
+	 *         "假设提示文字占几行"而导致重叠或留白不一致（换行行数是动态的，
+	 *         不同语言、不同 Provider 的文案长度不同，硬编码位置几乎肯定会出错）。
+	 */
+	protected int renderLeftBottomHints(DrawContext context, int x, int y, HintLine... lines) {
+		var textRenderer = MinecraftClient.getInstance().textRenderer;
+		int maxWidth = LIST_WIDTH;
+		int lineHeight = textRenderer.fontHeight + 2;
+		int currentY = y;
+
+		for (HintLine line : lines) {
+			String remaining = line.text().getString();
+			if (remaining.isEmpty()) continue;
+
+			while (!remaining.isEmpty()) {
+				String trimmed = textRenderer.trimToWidth(remaining, maxWidth);
+				if (trimmed.isEmpty()) {
+					// 极端情况（单个字符都超宽，理论上不会发生在这个字体+宽度组合下，
+					// 但防御性地避免死循环）：至少画一个字符再退出这一行。
+					trimmed = remaining.substring(0, 1);
+				}
+				context.drawTextWithShadow(textRenderer, trimmed, x, currentY, line.color());
+				currentY += lineHeight;
+				if (trimmed.length() >= remaining.length()) break;
+				remaining = remaining.substring(trimmed.length());
+			}
+		}
+		return currentY;
+	}
 }

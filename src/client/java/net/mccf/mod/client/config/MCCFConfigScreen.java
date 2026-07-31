@@ -33,19 +33,26 @@ public class MCCFConfigScreen extends Screen {
 	/** 标签栏与下方面板之间的间隙——留出空间给面板内部"当前 Provider 名称"标题行。 */
 	private static final int TAB_BAR_GAP = 20;
 	/**
-	 * 底部提示文字区域的预留高度。ProviderConfigPanel 的两个子类都在屏幕底部画
-	 * 若干行提示文字（Provider 说明 / 状态消息，LocalConfigPanel 还多一行服务器
-	 * 检测状态），行距 18px。最多的是 LocalConfigPanel 的 3 行，按 3 行预留
-	 * （18px × 3 = 54px），两个面板统一用这个值，即使 ServerConfigPanel 只用得上
-	 * 2 行也无妨——空出来的地方留白，换来的是两个标签页"控件区下边界"位置一致，
-	 * 切换标签页时不会感觉界面在跳动。
+	 * 底部提示文字区域的预留高度。ProviderConfigPanel 的两个子类现在把提示文字
+	 * （Provider 说明 / 加载或超时状态 / 操作状态消息，LocalConfigPanel 还多一行
+	 * 服务器检测状态）画在左侧 Provider 列表正下方（见
+	 * {@code ProviderConfigPanel#renderLeftBottomHints}），左对齐、按 200px
+	 * （{@code LIST_WIDTH}）宽度自动换行，不再是早期版本的"屏幕底部居中单行"。
 	 *
-	 * 这个值必须和 ServerConfigPanel/LocalConfigPanel 里 renderExtra 用的
-	 * lineSpacing（18px）保持同步——如果以后改了那边的行距或行数，这里也要
-	 * 跟着调整，否则控件区和提示文字区又会重新出现"共享同一条边界线导致
-	 * 视觉重叠"的问题（这正是本次改动之前的实际状况，见 9.2 系列踩坑记录）。
+	 * 由于列表区域比屏幕窄得多，长一点的提示文案（尤其英语）很容易换行到 2 行，
+	 * 按最坏情况估算：Provider 说明最多 2 行 + 状态/超时提示最多 2 行 = 4 行文字
+	 * （每行 18px）+ ServerConfigPanel 在"请求快照超时"状态下额外显示的"重试"
+	 * 按钮（20px 高 + 4px 间距）。合计 4×18 + 4 + 20 = 96px，取整预留 100px，
+	 * 留一点余量。两个面板统一用这个值（即使 LocalConfigPanel 不需要按钮），
+	 * 换来的是两个标签页"控件区下边界"位置一致，切换标签页时不会感觉界面在跳动。
+	 *
+	 * 这个值必须和 ServerConfigPanel/LocalConfigPanel 里 renderLeftBottomHints
+	 * 用的行距（18px）、以及 ServerConfigPanel 的"重试"按钮尺寸保持同步——如果
+	 * 以后改了那边的行距/行数/按钮高度，这里也要跟着调整，否则控件区和提示
+	 * 文字/按钮区又会重新出现"共享同一条边界线导致视觉重叠"的问题（这正是
+	 * 0.9.0 之前的实际状况，见更新日志里的踩坑记录）。
 	 */
-	private static final int BOTTOM_HINT_AREA_HEIGHT = 54;
+	private static final int BOTTOM_HINT_AREA_HEIGHT = 100;
 
 	private final Screen parent;
 

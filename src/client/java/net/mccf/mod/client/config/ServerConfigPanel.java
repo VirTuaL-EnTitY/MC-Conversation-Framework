@@ -33,24 +33,49 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 
 	private final ClientConfigState state = ClientConfigState.get();
 
+	/** 请求快照后多久（毫秒）算超时——超时后不再显示"加载中"，改为提示未安装/无法连接 + 重试按钮。 */
+	private static final long SNAPSHOT_TIMEOUT_MS = 5000;
+
 	private TextFieldWidget apiKeyField;
 	private TextFieldWidget modelField;
 	private TextFieldWidget endpointField;
 	private ButtonWidget saveButton;
 	private ButtonWidget fetchModelsButton;
 	private ButtonWidget clearApiKeyButton;
+	private ButtonWidget retryButton;
 
 	private Text statusMessage = Text.empty();
 	private int statusColor = Colors.YELLOW;
 	/** 玩家是否点了"清除密钥"按钮，语义同旧版 MCCFConfigScreen。 */
 	private boolean userClearedApiKey = false;
+	/**
+	 * 最近一次向服务端请求配置快照的时刻（{@link System#currentTimeMillis()}）。
+	 * 用于在 {@link #renderExtra} 里判断是否已经等待超过 {@link #SNAPSHOT_TIMEOUT_MS}
+	 * 仍未收到回包——这种情况通常意味着服务器没有安装 MCCF（能连接、能发送请求，
+	 * 但服务端不认识这个通道/不会回应），而不是"还在加载中"。0 表示尚未发送过请求
+	 * （理论上不会发生，构造器里 canSend 检查通过就会立即请求一次；但如果玩家在
+	 * 未连接任何服务器时打开过配置界面，这个值会保持 0，此时也不应该显示超时提示，
+	 * 因为压根没发出去请求，见 renderExtra 里的判断）。
+	 */
+	private long snapshotRequestedAtMillis = 0;
 
 	public ServerConfigPanel(Screen screen, int left, int top, int right, int bottom, int screenCenterY) {
 		super(screen, left, top, right, bottom, screenCenterY);
-		// 打开界面时向服务端请求最新快照。canSend 检查避免玩家尚未进入任何世界/
-		// 连接任何服务器时调用 send() 抛异常导致崩溃（这是旧版就有的已知坑）。
+		requestSnapshot();
+	}
+
+	/**
+	 * 向服务端请求最新配置快照，并记录请求时刻用于超时判断。
+	 * canSend 检查避免玩家尚未进入任何世界/连接任何服务器时调用 send() 抛异常
+	 * 导致崩溃（这是旧版就有的已知坑）——未连接时 snapshotRequestedAtMillis 保持
+	 * 0，renderExtra 据此不显示"加载中"也不显示"超时未安装"，直接留空（跟
+	 * LocalConfigPanel 处理"未连接时不显示检测行"是同一个思路：没有连接这件事
+	 * 本身不构成"加载"或"超时"，就不该显示任何相关状态）。
+	 */
+	private void requestSnapshot() {
 		if (ClientPlayNetworking.canSend(RequestConfigPayload.ID)) {
 			ClientPlayNetworking.send(new RequestConfigPayload(true));
+			snapshotRequestedAtMillis = System.currentTimeMillis();
 		}
 	}
 
@@ -120,6 +145,19 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 				.dimensions(panelLeft + (thirdWidth + 4) * 2, y, thirdWidth, fieldHeight)
 				.build());
 
+		// "重试"按钮：只在快照请求超时（服务器可能没装 MCCF）时才显示，见 renderExtra
+		// 里的超时判断。放在左侧提示区域下方而不是右侧控件序列里——它不是一个常规的
+		// 表单操作，是"加载失败后的补救动作"，默认应该是不存在的（active=false 且
+		// visible=false，双重保险防止意外可交互，与父类 setVisible 的两道防线思路一致）。
+		// 初始 y 坐标只是占位——提示文字的实际换行行数是动态的（取决于语言/文案长度），
+		// 真正的位置在 renderExtra 里每帧根据 renderLeftBottomHints 的返回值用
+		// setPosition 重新计算，这里给的坐标只要合法（在屏幕范围内）即可。
+		retryButton = own(ButtonWidget.builder(Text.translatable("mccf.config.retry"), button -> onRetry())
+				.dimensions(left, bottom + 6, LIST_WIDTH, fieldHeight)
+				.build());
+		retryButton.visible = false;
+		retryButton.active = false;
+
 		refreshFieldsFromState();
 		applyEditability();
 	}
@@ -164,10 +202,27 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	protected void onTabVisibilityChanged() {
 		if (apiKeyField == null) return; // 尚未 buildRightPanel
 		applyEditability();
+		// retryButton 的可见性平时完全由 renderExtra 每帧根据超时状态计算——但
+		// renderExtra 只在这个标签页是当前活动标签时才会被调用（见该方法开头的
+		// 注释）。切到另一个标签页时 renderExtra 不再执行，如果切走那一刻恰好
+		// 处于"超时显示中"的状态，retryButton.visible 会保持 true 残留下去
+		// （虽然 setVisible(false) 已经把它设为不可见，但如果玩家再切回来，
+		// 在下一帧 renderExtra 重新计算之前，理论上有一帧的状态是不确定的）。
+		// 这里在切走/切入时都强制先关闭，确保每次进入这个标签页都是从"未显示
+		// 重试按钮"的干净状态开始，由 renderExtra 决定要不要重新显示它。
+		if (retryButton != null && !tabVisible) {
+			retryButton.visible = false;
+			retryButton.active = false;
+		}
 	}
 
 	/** 收到服务端最新快照后调用。 */
 	public void onSnapshotUpdated() {
+		// 收到了真实回包，不再是"等待中/超时"状态——归零计时，renderExtra 里
+		// hasReceivedSnapshot 已经为 true，会走"显示 statusMessage"分支，
+		// 但归零这个字段仍有意义：万一以后新增"重新连接后再次显示加载"之类
+		// 的场景，这个字段的状态要保持干净，不留一个过期的历史时间戳。
+		snapshotRequestedAtMillis = 0;
 		// 快照里的 activeProvider 是服务端确认生效的值，列表的"选中查看"跟随
 		// 过去，保持"保存后看到的就是刚生效的"这个直觉。
 		selectedProvider = state.activeProvider;
@@ -293,28 +348,65 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		statusColor = Colors.YELLOW;
 	}
 
+	/** 玩家点击"重试"按钮：重新发送快照请求，重置超时计时。 */
+	private void onRetry() {
+		requestSnapshot();
+	}
+
 	@Override
 	protected void renderExtra(DrawContext context, int mouseX, int mouseY, float delta) {
-		if (!tabVisible) return;
+		// 注：不需要在这里判断 tabVisible——MCCFConfigScreen.render() 只在
+		// activeTab 匹配当前 Panel 时才会调用它的 render()/renderExtra()，
+		// 非活动标签页的 renderExtra 根本不会被调用到，这里的 tabVisible
+		// 恒为 true。retryButton 等控件切走标签页时的可见性重置由
+		// onTabVisibilityChanged 负责（该回调在 setVisible 里被无条件调用，
+		// 不依赖 render 是否执行）。
 		var textRenderer = MinecraftClient.getInstance().textRenderer;
 		int centerX = screen.width / 2;
 
 		Text providerTitle = Text.translatable(ClientConfigState.providerNameKey(selectedProvider));
 		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, top - 14, Colors.WHITE);
 
-		// 底部提示区两行，间距 18px，与 LocalConfigPanel 保持一致的视觉风格
-		// （两个标签页共用同一套骨架，提示文字排布也应该看起来是"同一个界面的
-		// 两个页签"而不是两套不同的间距规则）。
-		int screenBottom = screen.height - 20;
-		int lineSpacing = 18;
+		// 提示文字（Provider 说明 / 加载中或超时提示 / 操作状态消息）挪到左侧
+		// Provider 列表正下方，左对齐、从上往下排——原来是屏幕底部居中，应用户
+		// 要求改为利用列表下方原本空置的区域。具体换行/排版逻辑见
+		// ProviderConfigPanel#renderLeftBottomHints。
 		Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
-		context.drawCenteredTextWithShadow(textRenderer, providerDesc, centerX, screenBottom - lineSpacing * 2, Colors.LIGHT_GRAY);
 
-		if (!state.hasReceivedSnapshot) {
-			context.drawCenteredTextWithShadow(textRenderer, Text.translatable("mccf.config.loading"),
-					centerX, screenBottom - lineSpacing, Colors.LIGHT_GRAY);
-		} else if (!statusMessage.getString().isEmpty()) {
-			context.drawCenteredTextWithShadow(textRenderer, statusMessage, centerX, screenBottom - lineSpacing, statusColor);
+		// 三态判断，替代原来"hasReceivedSnapshot ? 状态消息 : 加载中"的二态逻辑：
+		// 1) 从未发出过请求（snapshotRequestedAtMillis == 0，典型场景是玩家还没
+		//    进入任何世界/服务器）——不显示任何加载/超时提示，留空，避免在主菜单
+		//    也常驻一句跟当前场景无关的"正在加载配置"。
+		// 2) 已发出请求但还没收到回包，且未超过 SNAPSHOT_TIMEOUT_MS——正常的
+		//    "加载中"，服务端稍后应该会回应。
+		// 3) 已发出请求，超过 SNAPSHOT_TIMEOUT_MS 仍未收到回包——判定为服务器
+		//    没有安装 MCCF 或无法连接，不再空等，改为提示 + 显示"重试"按钮。
+		boolean neverRequested = snapshotRequestedAtMillis == 0;
+		boolean timedOut = !neverRequested
+				&& !state.hasReceivedSnapshot
+				&& System.currentTimeMillis() - snapshotRequestedAtMillis > SNAPSHOT_TIMEOUT_MS;
+
+		HintLine statusLine;
+		if (state.hasReceivedSnapshot) {
+			statusLine = new HintLine(statusMessage, statusColor);
+		} else if (neverRequested) {
+			statusLine = new HintLine(Text.empty(), Colors.LIGHT_GRAY);
+		} else if (timedOut) {
+			statusLine = new HintLine(Text.translatable("mccf.config.not_installed"), 0xFF5555);
+		} else {
+			statusLine = new HintLine(Text.translatable("mccf.config.loading"), Colors.LIGHT_GRAY);
+		}
+
+		int afterHintsY = renderLeftBottomHints(context, left, bottom + 6,
+				new HintLine(providerDesc, Colors.LIGHT_GRAY),
+				statusLine);
+
+		if (retryButton != null) {
+			retryButton.visible = timedOut;
+			retryButton.active = timedOut;
+			if (timedOut) {
+				retryButton.setPosition(left, afterHintsY + 4);
+			}
 		}
 	}
 }
