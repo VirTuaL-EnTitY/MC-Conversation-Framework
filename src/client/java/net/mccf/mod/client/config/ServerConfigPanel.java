@@ -19,11 +19,13 @@ import net.minecraft.util.Colors;
  * 提交给服务端、对所有玩家生效。
  *
  * 与旧版 MCCFConfigScreen 的行为差异（新版 UI 改动，见需求确认）：
- * - 原来"切换 Provider 下拉框"等于直接切换 activeProvider；现在左侧列表点击
- *   只切换"选中查看"（{@link #selectedProvider}），要点击"保存并启用"才会把
- *   它写进 {@link ClientConfigState#pendingActiveProvider} 并随下一次保存提交。
- *   普通"保存"按钮只保存当前查看的 Provider 的字段改动，不切换 activeProvider——
- *   两个操作分开，避免玩家只是想改个 API Key 却不小心把 Provider 切了。
+ * - 左侧列表点击只切换"选中查看"（{@link #selectedProvider}），不会立即生效。
+ * - 点"保存"时，当前选中查看的 Provider 会**同时**成为待启用目标——不再需要
+ *   单独的"保存并启用"/"设为默认"按钮，保存这一个动作同时做两件事：
+ *   (a) 保存当前查看 Provider 的字段改动（API Key / 模型 / Endpoint）；
+ *   (b) 把当前查看的 Provider 设为 activeProvider。这是应用户明确要求的
+ *   简化——"选择某个 Provider 再点保存，就代表把它设为默认"，不需要额外
+ *   再点一次"设为默认"。
  * - 其余字段级别的行为（清除 Key、恢复默认 Endpoint、获取模型列表、只读态）
  *   与旧版一致，原样迁移。
  */
@@ -35,7 +37,6 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	private TextFieldWidget modelField;
 	private TextFieldWidget endpointField;
 	private ButtonWidget saveButton;
-	private ButtonWidget activateButton;
 	private ButtonWidget fetchModelsButton;
 	private ButtonWidget clearApiKeyButton;
 
@@ -55,7 +56,7 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 
 	@Override
 	protected String initialSelectedProvider() {
-		return state.pendingActiveProvider;
+		return state.activeProvider;
 	}
 
 	@Override
@@ -67,18 +68,10 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	protected void buildRightPanel(int panelLeft, int panelTop, int panelRight, int panelBottom) {
 		int panelWidth = panelRight - panelLeft;
 		int fieldHeight = 20;
-		// 动态间距：6 行控件（高 20）+ 5 个间距，默认 36px 宽松行距，
-		// 在较小屏幕上自动压缩，避免按钮跑出屏幕。
-		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 120) / 5));
+		// 动态间距：5 行控件（高 20）+ 4 个间距——比原来少了"保存并启用"这一行，
+		// 分母也从 5 改成 4，其余按钮更宽松（原设计的"最多 6 行"上限不再适用）。
+		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 100) / 4));
 		int y = panelTop;
-
-		// "保存并启用"：把当前查看的 Provider 设为待启用目标，随下一次保存提交。
-		// 与普通保存分开，避免玩家只想改字段却误切了 activeProvider。
-		activateButton = own(ButtonWidget.builder(
-						Text.translatable("mccf.config.activate"), button -> onActivate())
-				.dimensions(panelLeft, y, panelWidth, fieldHeight)
-				.build());
-		y += spacing;
 
 		int apiKeyFieldWidth = panelWidth - 44;
 		apiKeyField = own(new TextFieldWidget(MinecraftClient.getInstance().textRenderer, panelLeft, y, apiKeyFieldWidth, fieldHeight,
@@ -147,11 +140,6 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		apiKeyField.setText(pc.apiKey == null ? "" : pc.apiKey);
 		modelField.setText(pc.model == null ? "" : pc.model);
 		endpointField.setText(pc.endpoint == null ? "" : pc.endpoint);
-
-		boolean isActive = selectedProvider.equals(state.pendingActiveProvider);
-		activateButton.active = tabVisible && state.canEdit && !isActive;
-		activateButton.setMessage(Text.translatable(
-				isActive ? "mccf.config.activate.current" : "mccf.config.activate"));
 	}
 
 	private void applyEditability() {
@@ -176,24 +164,13 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	protected void onTabVisibilityChanged() {
 		if (apiKeyField == null) return; // 尚未 buildRightPanel
 		applyEditability();
-		// activateButton 的 active 还依赖 isActive，单独刷新一次。
-		refreshFieldsFromState();
-	}
-
-	/** "保存并启用"：把当前查看的 Provider 记为待启用目标。真正提交仍需点"保存"。 */
-	private void onActivate() {
-		if (!state.canEdit) return;
-		state.pendingActiveProvider = selectedProvider;
-		refreshFieldsFromState();
-		statusMessage = Text.translatable("mccf.config.activate_pending");
-		statusColor = Colors.YELLOW;
 	}
 
 	/** 收到服务端最新快照后调用。 */
 	public void onSnapshotUpdated() {
-		// 快照里的 pendingActiveProvider 已经被 applySnapshot 重置为服务端确认值，
-		// 列表的"选中查看"跟随过去，保持"保存后看到的就是刚生效的" 的直觉。
-		selectedProvider = state.pendingActiveProvider;
+		// 快照里的 activeProvider 是服务端确认生效的值，列表的"选中查看"跟随
+		// 过去，保持"保存后看到的就是刚生效的"这个直觉。
+		selectedProvider = state.activeProvider;
 		if (listWidget != null) {
 			listWidget.setSelectedProvider(selectedProvider);
 		}
@@ -275,6 +252,11 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		statusColor = Colors.YELLOW;
 	}
 
+	/**
+	 * 保存：把当前查看的 Provider 的字段改动写入，并且——按用户明确要求——
+	 * 把当前查看的 Provider 直接设为待启用目标（{@code pendingActiveProvider}）。
+	 * 不再需要单独的"设为默认"按钮，保存这一步就代表"我选的就是这个"。
+	 */
 	private void onSave() {
 		if (!state.canEdit) return;
 		if (!ClientPlayNetworking.canSend(UpdateConfigPayload.ID)) {
@@ -302,6 +284,9 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 			pc.endpointAction = ClientProviderConfig.EndpointAction.UNCHANGED;
 			pc.isCustomEndpoint = false;
 		}
+
+		// 保存 = 同时把当前查看的 Provider 设为激活目标，见方法注释。
+		state.pendingActiveProvider = selectedProvider;
 
 		ClientPlayNetworking.send(new UpdateConfigPayload(state.buildUpdateJson()));
 		statusMessage = Text.translatable("mccf.config.saving");

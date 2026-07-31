@@ -383,6 +383,46 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-07-30　0.10.0 修复：Provider 列表 DeepSeek 消失（滚动缺失）+ 移除"设为默认"按钮，改为保存即生效
+
+**1.（真实 bug 修复）左侧 Provider 列表 DeepSeek 消失**
+- 根因：`ProviderListWidget` 是纯静态渲染，8 个 Provider × 20px 行高需要
+  160px 总高度，但渲染逻辑里 `y + ENTRY_HEIGHT > maxY` 会直接 `break` 掉
+  超出可视区域的条目，完全没有滚动能力。一旦分配给列表的高度小于 160px
+  （常见于较小分辨率，或者上一版本改动为底部提示文字预留空间后进一步压缩了
+  可用高度），排在数组末尾的 Provider（`deepseek` 排第 7、`ollama` 排第 8）
+  就会被直接截断、玩家完全看不到也点不到——这正是用户反馈的现象。
+- 修复：`ProviderListWidget` 新增 `scrollOffset` 状态和 `mouseScrolled` 处理，
+  支持鼠标滚轮滚动；渲染时用 `DrawContext.enableScissor`/`disableScissor`
+  裁剪到列表自身可视矩形，避免滚动后条目画到列表框外；内容总高度超出可视
+  区域时在右侧画一条简易滚动条（纯视觉提示，不支持拖拽——条目数量不多，
+  滚轮足够，没必要再实现完整的拖拽交互）。`onClick` 的点击判定同步改为
+  基于滚动后的实际行位置计算，且要求命中"实际可视范围内"的部分（滚动到
+  一半、某行只露出一半时，点击被裁剪掉的那一半不会误触发选中）。
+
+**2.（交互改造）移除"设为默认"/"保存并启用"按钮，选中 Provider 后点保存即代表设为默认**
+- 原设计（见 0.6.0 记录）：左侧列表点击只切换"选中查看"，需要额外点一次
+  "保存并启用"/"设为本地默认"按钮才会把当前查看的 Provider 记为待启用目标，
+  普通"保存"只保存字段改动、不切换 activeProvider——这是有意设计的两步分离，
+  但用户反馈这个流程不必要，多了一步操作。
+- 新设计：`ServerConfigPanel` 和 `LocalConfigPanel` 都移除了 `activateButton`
+  / `onActivate()`，改为在 `onSave()`（`ServerConfigPanel`）/
+  `performSave()`（`LocalConfigPanel`）里直接把当前查看的 `selectedProvider`
+  同时写入待启用目标（`state.pendingActiveProvider` /
+  `config.activeProvider`）——点击左侧列表仍然只是切换查看，但点"保存"这
+  一个动作现在同时完成"保存字段改动"和"设为默认"两件事，不再需要额外的
+  确认步骤。
+- 两个面板的控件行数各少了一行，`buildRightPanel` 里的动态间距公式分母
+  相应调整（`ServerConfigPanel`：5→4；`LocalConfigPanel`：6→5），其余控件
+  间距更宽松。`initialSelectedProvider()` 也相应改为直接读
+  `state.activeProvider`/`config.activeProvider`（原先读的是
+  `pendingActiveProvider`，现在这个字段只在提交时临时赋值，不再有独立于
+  `activeProvider` 的语义）。
+- 移除了不再使用的翻译键 `mccf.config.activate` / `.activate.current` /
+  `.activate_pending`（9 种语言）。
+
+版本号 `0.9.0` → `0.10.0`（按 9.1 规则升 minor：真实 bug 修复 + 交互改造）。
+
 ### 2026-07-30　0.9.0 优化：配置界面提示文字位置 + 修复潜在的文字/控件重叠
 
 响应用户反馈"提示文字位置不合理"，重新梳理了 `ServerConfigPanel` /

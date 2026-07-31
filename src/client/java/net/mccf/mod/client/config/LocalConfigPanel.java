@@ -27,9 +27,10 @@ import java.util.Locale;
  * 与"服务端配置"标签页的关键区别：
  * - 这里的配置只影响玩家自己本地看到的翻译结果，不经过服务端。
  * - 多了一个"运行模式"选择器（自动检测 / 强制纯客户端 / 强制服务器模式）。
- * - 左侧列表点击同样只切换"选中查看"，"设为本地默认"按钮才会把选中的
- *   Provider 写入 {@link ClientOnlyTranslationConfig#activeProvider}（点保存
- *   才真正落盘，与服务端面板的"保存并启用"同理）。
+ * - 左侧列表点击只切换"选中查看"，点"保存"时当前选中的 Provider 会**同时**
+ *   成为待启用目标并写入 {@link ClientOnlyTranslationConfig#activeProvider}——
+ *   不再需要单独的"设为本地默认"按钮，与 {@link ServerConfigPanel} 的简化
+ *   保持一致（应用户明确要求）。
  * - "从服务器同步"按钮拷贝 Provider 选择/模型名/Endpoint 等公开字段，不拷贝
  *   API Key。
  */
@@ -37,16 +38,12 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 
 	private final ClientOnlyTranslationConfig config = ClientOnlyTranslationConfig.get();
 
-	/** 待启用的本地 Provider——点了"设为本地默认"但还没点保存时的暂存值。 */
-	private String pendingActiveProvider;
-
 	private CyclingButtonWidget<ClientOnlyModeManager.Override> modeButton;
 	private TextFieldWidget apiKeyField;
 	private TextFieldWidget modelField;
 	private TextFieldWidget endpointField;
 	private ButtonWidget syncButton;
 	private ButtonWidget saveButton;
-	private ButtonWidget activateButton;
 	private ButtonWidget clearApiKeyButton;
 	private ButtonWidget fetchModelsButton;
 
@@ -58,7 +55,6 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 
 	public LocalConfigPanel(Screen screen, int left, int top, int right, int bottom, int screenCenterY) {
 		super(screen, left, top, right, bottom, screenCenterY);
-		this.pendingActiveProvider = config.activeProvider;
 	}
 
 	@Override
@@ -75,9 +71,9 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 	protected void buildRightPanel(int panelLeft, int panelTop, int panelRight, int panelBottom) {
 		int panelWidth = panelRight - panelLeft;
 		int fieldHeight = 20;
-		// 动态间距：7 行控件（高 20）+ 6 个间距，默认 36px 宽松行距，
-		// 在较小屏幕上自动压缩，避免按钮跑出屏幕。
-		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 140) / 6));
+		// 动态间距：6 行控件（高 20）+ 5 个间距——比原来少了"设为本地默认"这一行，
+		// 分母从 6 改成 5。
+		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 120) / 5));
 		int y = panelTop;
 
 		ClientOnlyModeManager.Override initialMode =
@@ -88,12 +84,6 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 				.initially(initialMode)
 				.build(panelLeft, y, panelWidth, fieldHeight,
 						Text.translatable("mccf.localconfig.mode"), (button, value) -> pendingOverride = value));
-		y += spacing;
-
-		activateButton = own(ButtonWidget.builder(
-						Text.translatable("mccf.config.activate"), button -> onActivate())
-				.dimensions(panelLeft, y, panelWidth, fieldHeight)
-				.build());
 		y += spacing;
 
 		int apiKeyFieldWidth = panelWidth - 44;
@@ -165,19 +155,15 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 
 		boolean isMock = selectedProvider.equals("mock");
 		boolean isDeepL = selectedProvider.equals("deepl");
-		boolean isActive = selectedProvider.equals(pendingActiveProvider);
 		boolean supportsModelList = !ClientConfigState.NO_MODEL_LIST_SUPPORT.contains(selectedProvider);
 
 		apiKeyField.active = tabVisible && !isMock;
 		endpointField.active = tabVisible && !isMock;
 		modelField.active = tabVisible && !isMock && !isDeepL;
 		clearApiKeyButton.active = tabVisible && !isMock;
-		activateButton.active = tabVisible && !isActive;
 		if (fetchModelsButton != null) {
 			fetchModelsButton.active = tabVisible && supportsModelList;
 		}
-		activateButton.setMessage(Text.translatable(
-				isActive ? "mccf.config.activate.current" : "mccf.config.activate"));
 	}
 
 	private void refreshSyncButtonState() {
@@ -197,14 +183,6 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		if (modeButton != null) modeButton.active = tabVisible;
 	}
 
-	/** "设为本地默认"：把当前查看的 Provider 记为待启用目标，点保存才真正落盘。 */
-	private void onActivate() {
-		pendingActiveProvider = selectedProvider;
-		refreshFieldsFromState();
-		statusMessage = Text.translatable("mccf.config.activate_pending");
-		statusColor = Colors.YELLOW;
-	}
-
 	private void onSync() {
 		if (!ClientConfigState.get().hasReceivedSnapshot) {
 			statusMessage = Text.translatable("mccf.localconfig.sync_no_data");
@@ -212,7 +190,6 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 			return;
 		}
 		config.copyPublicFieldsFrom(ClientConfigState.get());
-		pendingActiveProvider = config.activeProvider;
 		selectedProvider = config.activeProvider;
 		if (listWidget != null) {
 			listWidget.setSelectedProvider(selectedProvider);
@@ -329,7 +306,11 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		performSave();
 	}
 
-	/** 实际执行保存——原 onSave() 的全部逻辑，供确认弹窗回调和"无需确认"路径共用。 */
+	/**
+	 * 实际执行保存——原 onSave() 的全部逻辑，供确认弹窗回调和"无需确认"路径共用。
+	 * 保存 = 同时把当前查看的 Provider 设为本地激活目标（不再需要单独的
+	 * "设为本地默认"按钮，见类注释）。
+	 */
 	private void performSave() {
 		ClientProviderConfig pc = config.getOrCreate(selectedProvider);
 		String enteredKey = apiKeyField.getText();
@@ -345,7 +326,7 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		pc.endpoint = enteredEndpoint;
 		pc.isCustomEndpoint = !enteredEndpoint.isBlank();
 
-		config.activeProvider = pendingActiveProvider;
+		config.activeProvider = selectedProvider;
 
 		if (pendingOverride != null) {
 			ClientOnlyModeManager.setOverride(pendingOverride);
