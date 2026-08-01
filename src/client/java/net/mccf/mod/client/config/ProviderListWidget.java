@@ -113,6 +113,7 @@ public class ProviderListWidget extends ClickableWidget {
 		context.enableScissor(x, viewTop, x + width, viewBottom);
 
 		int rowY = y - scrollOffset;
+		String hoveredProviderId = null;
 		for (String id : providerIds) {
 			// 完全在可视区域上方或下方的条目跳过渲染（性能优化，且反正会被
 			// scissor 裁掉，跳过只是省一次没必要的绘制调用）。
@@ -121,6 +122,13 @@ public class ProviderListWidget extends ClickableWidget {
 				boolean isActive = id.equals(activeProvider.get());
 				boolean rowHovered = hovered && mouseX >= x && mouseX < x + width
 						&& mouseY >= Math.max(rowY, viewTop) && mouseY < Math.min(rowY + ENTRY_HEIGHT, viewBottom);
+
+				if (rowHovered) {
+					// 记录下来，留到 scissor 解除之后再画 tooltip（见下方）——tooltip
+					// 内容可能比列表本身宽，如果在 scissor 区域内画会被裁掉右侧/底部
+					// 超出列表框的部分，必须在 disableScissor() 之后单独画。
+					hoveredProviderId = id;
+				}
 
 				if (isSelected) {
 					context.fill(x, rowY, x + textAreaWidth, rowY + ENTRY_HEIGHT, SELECTED_BG);
@@ -145,6 +153,16 @@ public class ProviderListWidget extends ClickableWidget {
 		}
 
 		context.disableScissor();
+
+		// 悬浮在列表任意一项上（不需要先点中它）就弹出该 Provider 的说明 tooltip——
+		// 应用户明确要求"悬浮在 Kimi、DeepSeek 这些列表项上就弹出对应说明，而不需要
+		// 先点中它们"。之前的实现只在悬浮到顶部"当前选中查看"的标题上才弹 tooltip，
+		// 这里挪到列表本身，覆盖到全部 8 个 Provider 而不只是当前选中的那一个。
+		// 必须在 disableScissor() 之后画（见上方 hoveredProviderId 记录处的说明）。
+		if (hoveredProviderId != null) {
+			Text hoverDesc = Text.translatable("mccf.config.provider_hint." + hoveredProviderId);
+			context.drawTooltip(textRenderer, hoverDesc, mouseX, mouseY);
+		}
 
 		if (needsScrollbar()) {
 			int max = maxScrollOffset();

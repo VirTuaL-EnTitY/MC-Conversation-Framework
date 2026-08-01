@@ -352,21 +352,6 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		int titleY = top - 14;
 		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, titleY, Colors.WHITE);
 
-		// Provider 说明改为鼠标悬浮在标题上时才弹出的 tooltip，不再常驻占用
-		// 左下角空间——理由与判定方式同 ServerConfigPanel#renderExtra。
-		// 检测状态行 / 操作状态消息仍然常驻显示（这些是玩家需要立刻看到、
-		// 可能要采取行动的信息，不适合藏进 tooltip）。
-		int titleWidth = textRenderer.getWidth(providerTitle);
-		int titleHitboxLeft = centerX - titleWidth / 2;
-		int titleHitboxTop = titleY - 2;
-		int titleHitboxBottom = titleY + textRenderer.fontHeight + 2;
-		boolean hoveringTitle = mouseX >= titleHitboxLeft && mouseX < titleHitboxLeft + titleWidth
-				&& mouseY >= titleHitboxTop && mouseY < titleHitboxBottom;
-		if (hoveringTitle) {
-			Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
-			context.drawTooltip(textRenderer, providerDesc, mouseX, mouseY);
-		}
-
 		// 检测状态行：没有加入任何世界/服务器时，"服务器是否装了 MCCF"这个问题
 		// 根本无意义（serverHasMod 在未连接时恒为 false，跟"连接了但真的没装"
 		// 是同一个 false，界面上无法区分，此前就是这个原因导致主界面/单机模式下

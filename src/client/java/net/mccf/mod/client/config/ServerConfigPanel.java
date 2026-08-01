@@ -388,30 +388,6 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		int titleY = top - 14;
 		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, titleY, Colors.WHITE);
 
-		// Provider 说明（"需要 API Key，支持上下文"这类）改为鼠标悬浮在标题上时
-		// 才弹出的 tooltip，不再常驻占用左下角空间——这类说明不是紧急信息，
-		// 玩家想看的时候凑近看一眼就够了，没必要一直显式占地方。用户反馈：
-		// 之前把它跟状态消息一起常驻画在左下角，视觉上占用了远超实际需要的
-		// 空间（截图显示接近 1.8/4 屏幕高度的空白）。现在只有状态消息
-		// （加载中/超时未安装/保存成功失败）继续常驻显示——这些是玩家必须
-		// 立刻看到、可能需要采取行动的信息，不适合藏进 tooltip。
-		//
-		// 判定"鼠标是否悬浮在标题上"：用 textRenderer 实际测量的文字宽度构造
-		// 一个以 centerX 为中心的判定矩形，而不是用整个标题行的固定像素范围
-		// 硬编码——不同语言的 Provider 名称长度差异很大（比如 "Kimi (Moonshot AI)"
-		// 比 "DeepSeek" 长得多），硬编码宽度要么裁掉长文本的可悬浮区域，
-		// 要么让短文本旁边的空白也能触发 tooltip，都不够准确。
-		int titleWidth = textRenderer.getWidth(providerTitle);
-		int titleHitboxLeft = centerX - titleWidth / 2;
-		int titleHitboxTop = titleY - 2;
-		int titleHitboxBottom = titleY + textRenderer.fontHeight + 2;
-		boolean hoveringTitle = mouseX >= titleHitboxLeft && mouseX < titleHitboxLeft + titleWidth
-				&& mouseY >= titleHitboxTop && mouseY < titleHitboxBottom;
-		if (hoveringTitle) {
-			Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
-			context.drawTooltip(textRenderer, providerDesc, mouseX, mouseY);
-		}
-
 		// 三态判断，替代原来"hasReceivedSnapshot ? 状态消息 : 加载中"的二态逻辑：
 		// 1) 从未发出过请求（snapshotRequestedAtMillis == 0，典型场景是玩家还没
 		//    进入任何世界/服务器）——不显示任何加载/超时提示，留空，避免在主菜单

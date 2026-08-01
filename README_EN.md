@@ -1,4 +1,4 @@
-# MC Conversation Framework
+# MC Conversation Framework (MCCF)
 
 简体中文（[中文 README](README.md)） | **English (current)**
 
@@ -42,7 +42,7 @@ in-person talking:
 
 1. **Download** the latest `.jar` from the
    [GitHub Releases page](../../releases/latest), or search for the mod on
-   CurseForge / Modrinth.
+   Modrinth.
 2. **Install** by dropping the `.jar` into your Minecraft `mods` folder.
    - If you're a **server owner**: install it on both the server and your
      own client to get the full "spatial translation" experience (who can
@@ -90,7 +90,7 @@ in-person talking:
   subtitles was removed in later 1.21.x releases, with no stable
   replacement yet).
 
-## Want the full technical details? 
+## Want the full technical details?
 
 This page is intentionally kept short and player-focused. For the complete
 technical documentation — architecture, build instructions, configuration

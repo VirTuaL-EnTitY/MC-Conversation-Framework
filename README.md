@@ -1,4 +1,4 @@
-# MC Conversation Framework
+# MC Conversation Framework (MCCF)
 
 **[English README](README_EN.md)** | 简体中文（当前）
 
@@ -30,7 +30,7 @@
 ## 怎么使用？
 
 1. **下载**：去 [GitHub Release](../../releases/latest) 下载最新的 `.jar` 文件
-   （或者在 CurseForge / Modrinth 上搜索本模组）。
+   （或者在 Modrinth 上搜索本模组）。
 2. **安装**：把下载的 `.jar` 放进 Minecraft 的 `mods` 文件夹。
    - 如果你是**服主**：服务器和你自己的客户端都需要装，才能获得完整的"空间化翻译"
      体验（谁能听到谁听不到、字幕悬浮位置等）。
@@ -111,11 +111,11 @@ cd MC-Conversation-Framework-1.21.1
 gradle build          # 或 ./gradlew build（如果已生成 wrapper）
 ```
 构建产物在 `build/libs/MCConversationFramework-<版本号>.jar`（版本号见
-`gradle.properties` 里的 `mod_version`，例如当前是 `0.8.0`），把它丢进服务器和客户端的 `mods/` 文件夹即可
+`gradle.properties` 里的 `mod_version`），把它丢进服务器和客户端的 `mods/` 文件夹即可
 （服务器和客户端都要装，因为这是一个同时含服务端逻辑和客户端渲染的模组）。
 
 同时确保服务器和客户端都装了对应版本的 **Fabric API**（`0.116.15+1.21.1` 或更高的
-1.21.1 兼容版本），可以在 Modrinth / CurseForge 上下载。装了
+1.21.1 兼容版本），可以在 Modrinth 上下载。装了
 [ModMenu](https://modrinth.com/mod/modmenu) 11.0.4（1.21.1 对应版本）的话还能获得
 游戏内配置界面的图标入口，非必需。
 
@@ -382,6 +382,58 @@ src/client/java/net/mccf/mod/client/
 ---
 
 ## 八、更新日志
+
+### 2026-07-30　0.13.1 移除 CurseForge 相关说明 + 修正一处过期硬编码版本号
+
+作者决定这个项目不打算发布到 CurseForge，只发 GitHub Release 和 Modrinth。
+中英文 README 里"怎么下载/安装"章节原本提到的 CurseForge 全部去掉，只保留
+GitHub Release 和 Modrinth 两个渠道。
+
+之前（见 0.8.0 记录）写工作流时 README 里还提过"项目要发布到 GitHub 并上传
+CurseForge / Modrinth"，以及"CurseForge / Modrinth 的自动上传本次没有加入
+workflow"——这两处是当时的真实决策记录，属于历史事实，本次不做回溯修改，
+只在下载安装说明这类"面向当前用户的操作指引"里去掉 CurseForge，避免用户
+去 CurseForge 找但根本没有发布过的困惑。
+
+顺手修正了 `README.md` 第 4 节里一处遗留的硬编码版本号（`例如当前是 0.8.0`
+早就跟实际版本对不上了），改成纯粹引用 `gradle.properties` 的
+`mod_version`，不再在文字里写死具体数字，避免以后每次发版又要手动改这一处。
+
+涉及文件：`README.md`、`README_EN.md`（各去掉一处 CurseForge 提及）。
+
+版本号 `0.13.0` → `0.13.1`（按 9.1 规则升 patch：纯文档修正，不涉及代码
+逻辑或功能变化）。
+
+### 2026-07-30　0.13.0 悬浮说明从顶部标题挪到左侧列表本身 + 修复编译错误
+
+响应用户反馈：0.12.0 把 Provider 说明改成悬浮 tooltip 后，触发区域只有顶部
+"当前选中查看"的标题一处，玩家想快速比较几个 Provider 的说明时，得先点选中
+每一个才能看到对应说明，不够方便。这次把悬浮触发区域从顶部标题挪到左侧
+Provider 列表本身，悬浮到列表里任意一项（不需要先点中它）就能看到该项的
+说明，等于顺手预览了整个列表，不需要来回点选切换。
+
+**1. 悬浮 tooltip 从顶部标题移到左侧列表**
+- `ProviderListWidget#renderWidget`：在渲染每一行时判定悬浮命中（复用已有的
+  `rowHovered` 变量），记录当前悬浮到的 `hoveredProviderId`；渲染循环和
+  `disableScissor()` 之后统一画一次 tooltip——必须在 scissor 解除之后画，
+  否则 tooltip 内容如果比列表本身宽，会被列表的裁剪区域裁掉右侧/底部超出
+  的部分（scissor 只裁剪列表框内的绘制调用，tooltip 需要能画到列表框
+  外面）。
+- `ServerConfigPanel`/`LocalConfigPanel` 的 `renderExtra` 移除了原来挂在
+  顶部标题上的悬浮判定逻辑（自行测量文字宽度构造判定矩形那段），标题
+  恢复为纯静态展示，不再承担交互职责——tooltip 逻辑现在完全收敛在
+  `ProviderListWidget` 内部，两个 Panel 不需要重复实现类似的悬浮判定。
+
+**2.（编译错误修复）`MCCFClient.java` 缺少 `java.util.List` 的 import**
+- 0.12.0 引入的 `ConversationRosterPayload` 接收器里用到了裸类名 `List<String>
+  names = newlyAdded.stream()...`，但没有对应的 `import java.util.List;`——
+  项目里这类地方通常要么走全限定名（`java.util.List<...>`）要么走顶部
+  import，这处漏加了 import 又没用全限定名，本地编译直接报
+  "找不到符号：类 List"。补上 `import java.util.List;` 即可，纯粹是
+  0.12.0 遗留的一处疏漏，逻辑本身没有问题。
+
+版本号 `0.12.0` → `0.13.0`（按 9.1 规则升 minor：交互体验改进 + 编译修复，
+两者放在同一个版本号里发布）。
 
 ### 2026-07-30　0.12.0 提示区改为悬浮 tooltip + 聊天历史复用服务端 Conversation 分组 + 聊天栏可选显示原文 + 元信息补全
 
