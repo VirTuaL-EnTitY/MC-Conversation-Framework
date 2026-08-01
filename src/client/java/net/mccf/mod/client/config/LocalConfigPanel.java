@@ -349,14 +349,23 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		int centerX = screen.width / 2;
 
 		Text providerTitle = Text.translatable(ClientConfigState.providerNameKey(selectedProvider));
-		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, top - 14, Colors.WHITE);
+		int titleY = top - 14;
+		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, titleY, Colors.WHITE);
 
-		// 提示文字（Provider 说明 / 服务器检测状态 / 操作状态消息）挪到左侧
-		// Provider 列表正下方，左对齐、从上往下排——与 ServerConfigPanel 保持
-		// 一致的布局风格，见 ProviderConfigPanel#renderLeftBottomHints 的说明。
-		// "强制服务器模式但未检测到服务器"的警告不在这里渲染——那个场景改成
-		// 点"保存"时弹出的 ConfirmScreen 拦截式确认弹窗（见 onSave）。
-		Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
+		// Provider 说明改为鼠标悬浮在标题上时才弹出的 tooltip，不再常驻占用
+		// 左下角空间——理由与判定方式同 ServerConfigPanel#renderExtra。
+		// 检测状态行 / 操作状态消息仍然常驻显示（这些是玩家需要立刻看到、
+		// 可能要采取行动的信息，不适合藏进 tooltip）。
+		int titleWidth = textRenderer.getWidth(providerTitle);
+		int titleHitboxLeft = centerX - titleWidth / 2;
+		int titleHitboxTop = titleY - 2;
+		int titleHitboxBottom = titleY + textRenderer.fontHeight + 2;
+		boolean hoveringTitle = mouseX >= titleHitboxLeft && mouseX < titleHitboxLeft + titleWidth
+				&& mouseY >= titleHitboxTop && mouseY < titleHitboxBottom;
+		if (hoveringTitle) {
+			Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
+			context.drawTooltip(textRenderer, providerDesc, mouseX, mouseY);
+		}
 
 		// 检测状态行：没有加入任何世界/服务器时，"服务器是否装了 MCCF"这个问题
 		// 根本无意义（serverHasMod 在未连接时恒为 false，跟"连接了但真的没装"
@@ -372,8 +381,10 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 						? "mccf.localconfig.detected_yes" : "mccf.localconfig.detected_no"), Colors.LIGHT_GRAY)
 				: new HintLine(Text.empty(), Colors.LIGHT_GRAY);
 
+		// 现在只剩检测状态 + 操作状态消息两类常驻内容（Provider 说明已改为
+		// tooltip），最多 2 行，左下角预留空间可以大幅缩小，见
+		// MCCFConfigScreen.BOTTOM_HINT_AREA_HEIGHT 的调整。
 		renderLeftBottomHints(context, left, bottom + 6,
-				new HintLine(providerDesc, Colors.LIGHT_GRAY),
 				detectedLine,
 				new HintLine(statusMessage, statusColor));
 	}

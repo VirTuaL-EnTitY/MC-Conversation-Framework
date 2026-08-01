@@ -39,6 +39,8 @@ public class ConfigSyncHandler {
 		JsonObject root = new JsonObject();
 		root.addProperty("canEdit", canEdit);
 		root.addProperty("activeProvider", config.activeProvider);
+		root.addProperty("showOriginalText", config.showOriginalText);
+		root.addProperty("showOriginalTextInChat", config.showOriginalTextInChat);
 
 		JsonObject providersJson = new JsonObject();
 		for (Map.Entry<String, ProviderConfig> entry : config.providers.entrySet()) {
@@ -85,6 +87,13 @@ public class ConfigSyncHandler {
 							"'. Valid providers: " + ProviderDefaults.all().keySet());
 				}
 				config.activeProvider = requestedProvider;
+			}
+
+			if (root.has("showOriginalText")) {
+				config.showOriginalText = root.get("showOriginalText").getAsBoolean();
+			}
+			if (root.has("showOriginalTextInChat")) {
+				config.showOriginalTextInChat = root.get("showOriginalTextInChat").getAsBoolean();
 			}
 
 			if (root.has("providers")) {

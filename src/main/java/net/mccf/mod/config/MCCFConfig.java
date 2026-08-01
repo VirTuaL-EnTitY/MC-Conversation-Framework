@@ -46,8 +46,21 @@ public class MCCFConfig {
 	/** 当前启用的翻译 Provider ID，对应某个已注册 TranslationProvider 的 ID。 */
 	public String activeProvider = "mock";
 
-	/** 是否在字幕中同时显示原文和译文。 */
+	/** 是否在物品栏上方字幕（AUDIBLE 模式）中同时显示原文和译文。 */
 	public boolean showOriginalText = true;
+
+	/**
+	 * 是否在聊天栏（VISIBLE 模式，说话者可见时降级显示的聊天框消息）中同时
+	 * 显示原文和译文。与 {@link #showOriginalText} 分开——那个开关只影响
+	 * 物品栏上方字幕（AUDIBLE），这个开关独立控制聊天栏是否额外追加一行
+	 * 原文，让管理员可以按各自的展示场景分别决定要不要显示原文，而不必
+	 * 两个模式绑在一起同开同关（比如可能只想让聊天栏更详细，但不想让
+	 * 物品栏字幕变长影响阅读节奏）。
+	 *
+	 * 默认关闭：VISIBLE 消息默认只显示译文（见客户端 addVisibleToChatHud），
+	 * 这是原有行为，新增这个开关不改变默认体验，管理员需要显式开启。
+	 */
+	public boolean showOriginalTextInChat = false;
 
 	/**
 	 * 每个 Provider 的独立配置（API Key / 模型名 / host），key 为 Provider ID。

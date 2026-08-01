@@ -43,6 +43,8 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	private ButtonWidget fetchModelsButton;
 	private ButtonWidget clearApiKeyButton;
 	private ButtonWidget retryButton;
+	private net.minecraft.client.gui.widget.CyclingButtonWidget<Boolean> showOriginalTextButton;
+	private net.minecraft.client.gui.widget.CyclingButtonWidget<Boolean> showOriginalTextInChatButton;
 
 	private Text statusMessage = Text.empty();
 	private int statusColor = Colors.YELLOW;
@@ -93,9 +95,9 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	protected void buildRightPanel(int panelLeft, int panelTop, int panelRight, int panelBottom) {
 		int panelWidth = panelRight - panelLeft;
 		int fieldHeight = 20;
-		// 动态间距：5 行控件（高 20）+ 4 个间距——比原来少了"保存并启用"这一行，
-		// 分母也从 5 改成 4，其余按钮更宽松（原设计的"最多 6 行"上限不再适用）。
-		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 100) / 4));
+		// 动态间距：6 行控件（高 20）+ 5 个间距——比 0.10.0 那版多了一行"显示原文"
+		// 开关（两个 CyclingButtonWidget<Boolean> 并排），分母从 4 改成 5。
+		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 120) / 5));
 		int y = panelTop;
 
 		int apiKeyFieldWidth = panelWidth - 44;
@@ -122,6 +124,20 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 				Text.translatable("mccf.config.endpoint")));
 		endpointField.setMaxLength(256);
 		endpointField.setPlaceholder(Text.translatable("mccf.config.endpoint.placeholder"));
+		y += spacing;
+
+		// 两个"显示原文"开关，并排放一行——分别对应 AUDIBLE 字幕（物品栏上方）
+		// 和 VISIBLE 聊天栏，两者独立控制（见 MCCFConfig 里两个字段各自的注释，
+		// 应用户明确要求分开配置，避免只想让聊天栏更详细却连带影响字幕）。
+		int halfWidthToggle = (panelWidth - 8) / 2;
+		showOriginalTextButton = own(net.minecraft.client.gui.widget.CyclingButtonWidget.onOffBuilder(state.showOriginalText)
+				.build(panelLeft, y, halfWidthToggle, fieldHeight,
+						Text.translatable("mccf.config.show_original_audible"),
+						(button, value) -> state.showOriginalText = value));
+		showOriginalTextInChatButton = own(net.minecraft.client.gui.widget.CyclingButtonWidget.onOffBuilder(state.showOriginalTextInChat)
+				.build(panelLeft + halfWidthToggle + 8, y, halfWidthToggle, fieldHeight,
+						Text.translatable("mccf.config.show_original_chat"),
+						(button, value) -> state.showOriginalTextInChat = value));
 		y += spacing;
 
 		int halfWidth = (panelWidth - 8) / 2;
@@ -191,6 +207,8 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		fetchModelsButton.active = tabVisible && state.canEdit && supportsModelList;
 		clearApiKeyButton.active = tabVisible && state.canEdit && !isMock;
 		saveButton.active = tabVisible && state.canEdit;
+		if (showOriginalTextButton != null) showOriginalTextButton.active = tabVisible && state.canEdit;
+		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.active = tabVisible && state.canEdit;
 
 		if (!state.canEdit) {
 			statusMessage = Text.translatable("mccf.config.no_permission");
@@ -231,6 +249,8 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		}
 		refreshFieldsFromState();
 		applyEditability();
+		if (showOriginalTextButton != null) showOriginalTextButton.setValue(state.showOriginalText);
+		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.setValue(state.showOriginalTextInChat);
 		statusMessage = Text.translatable("mccf.config.saved");
 		statusColor = Colors.GREEN;
 	}
@@ -365,13 +385,32 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		int centerX = screen.width / 2;
 
 		Text providerTitle = Text.translatable(ClientConfigState.providerNameKey(selectedProvider));
-		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, top - 14, Colors.WHITE);
+		int titleY = top - 14;
+		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, titleY, Colors.WHITE);
 
-		// 提示文字（Provider 说明 / 加载中或超时提示 / 操作状态消息）挪到左侧
-		// Provider 列表正下方，左对齐、从上往下排——原来是屏幕底部居中，应用户
-		// 要求改为利用列表下方原本空置的区域。具体换行/排版逻辑见
-		// ProviderConfigPanel#renderLeftBottomHints。
-		Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
+		// Provider 说明（"需要 API Key，支持上下文"这类）改为鼠标悬浮在标题上时
+		// 才弹出的 tooltip，不再常驻占用左下角空间——这类说明不是紧急信息，
+		// 玩家想看的时候凑近看一眼就够了，没必要一直显式占地方。用户反馈：
+		// 之前把它跟状态消息一起常驻画在左下角，视觉上占用了远超实际需要的
+		// 空间（截图显示接近 1.8/4 屏幕高度的空白）。现在只有状态消息
+		// （加载中/超时未安装/保存成功失败）继续常驻显示——这些是玩家必须
+		// 立刻看到、可能需要采取行动的信息，不适合藏进 tooltip。
+		//
+		// 判定"鼠标是否悬浮在标题上"：用 textRenderer 实际测量的文字宽度构造
+		// 一个以 centerX 为中心的判定矩形，而不是用整个标题行的固定像素范围
+		// 硬编码——不同语言的 Provider 名称长度差异很大（比如 "Kimi (Moonshot AI)"
+		// 比 "DeepSeek" 长得多），硬编码宽度要么裁掉长文本的可悬浮区域，
+		// 要么让短文本旁边的空白也能触发 tooltip，都不够准确。
+		int titleWidth = textRenderer.getWidth(providerTitle);
+		int titleHitboxLeft = centerX - titleWidth / 2;
+		int titleHitboxTop = titleY - 2;
+		int titleHitboxBottom = titleY + textRenderer.fontHeight + 2;
+		boolean hoveringTitle = mouseX >= titleHitboxLeft && mouseX < titleHitboxLeft + titleWidth
+				&& mouseY >= titleHitboxTop && mouseY < titleHitboxBottom;
+		if (hoveringTitle) {
+			Text providerDesc = Text.translatable("mccf.config.provider_hint." + selectedProvider);
+			context.drawTooltip(textRenderer, providerDesc, mouseX, mouseY);
+		}
 
 		// 三态判断，替代原来"hasReceivedSnapshot ? 状态消息 : 加载中"的二态逻辑：
 		// 1) 从未发出过请求（snapshotRequestedAtMillis == 0，典型场景是玩家还没
@@ -397,9 +436,10 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 			statusLine = new HintLine(Text.translatable("mccf.config.loading"), Colors.LIGHT_GRAY);
 		}
 
-		int afterHintsY = renderLeftBottomHints(context, left, bottom + 6,
-				new HintLine(providerDesc, Colors.LIGHT_GRAY),
-				statusLine);
+		// 现在只剩状态消息这一类常驻内容（Provider 说明已改为 tooltip），
+		// 最多 1-2 行（取决于语言/文案长度），左下角预留空间可以大幅缩小，
+		// 见 MCCFConfigScreen.BOTTOM_HINT_AREA_HEIGHT 的调整。
+		int afterHintsY = renderLeftBottomHints(context, left, bottom + 6, statusLine);
 
 		if (retryButton != null) {
 			retryButton.visible = timedOut;

@@ -1,0 +1,139 @@
+name: Build & Release
+
+# 触发策略：
+# - push 到 main：只编译 + 跑测试，验证代码没坏，不发布任何东西。这样每次日常
+#   提交都能立刻知道有没有编译错误，但不会产生一堆无意义的 Release。
+# - push 一个 v*.*.* 格式的 tag（例如 v0.8.0）：编译 + 跑测试 + 打包 + 自动创建
+#   GitHub Release 并把 jar 作为附件传上去，Release 描述自动从 README.md 的
+#   更新日志里提取对应版本号的那一段。
+# - 也支持手动触发（workflow_dispatch），方便调试 workflow 本身而不需要真的打
+#   一个 tag（手动触发时只跑编译+测试，不发布，逻辑同 push 到 main）。
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+# 避免同一个 ref 的多次触发互相排队等待（比如短时间内连续 push），新的运行会
+# 取消还在跑的旧运行，节省 Actions 分钟数。tag 触发的发布流程不取消 in-progress
+# 的构建，因为一个 tag 只会触发一次，没有"更新的同 tag 推送"这种情况。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    # 后续 release job 需要用到这里编译出的 jar，用 outputs 传递具体文件名
+    # （版本号是动态的，job 之间不能假设文件名，必须显式传递）。
+    outputs:
+      jar-name: ${{ steps.locate-jar.outputs.jar-name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Gradle Wrapper 本身不在仓库里（见 README "关于 Gradle Wrapper" 一节：
+      # 二进制 wrapper jar 无法在无网络沙盒环境里可靠生成）。CI 环境有网络、
+      # 也不需要"仓库自带 wrapper"这个约束，所以直接用 setup-gradle 官方
+      # action 提供的 gradle 命令构建，不用先生成 wrapper 再切换——减少一步
+      # 可能出错的环节，且效果等价（gradle-wrapper.properties 已经锁定了
+      # 8.8，这里 gradle-version 也显式指定 8.8，两边保持一致）。
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.8"
+
+      - name: Build with Gradle
+        run: gradle build --stacktrace
+
+      - name: Locate built jar
+        id: locate-jar
+        # remapJar 产物命名为 <archives_base_name>-<mod_version>.jar（不含
+        # -dev/-sources 后缀），见 build.gradle 的 archivesName 配置。用
+        # gradle.properties 里的实际值拼接，不猜测/硬编码版本号。
+        run: |
+          BASE_NAME=$(grep '^archives_base_name=' gradle.properties | cut -d= -f2)
+          MOD_VERSION=$(grep '^mod_version=' gradle.properties | cut -d= -f2)
+          JAR_NAME="${BASE_NAME}-${MOD_VERSION}.jar"
+          if [ ! -f "build/libs/${JAR_NAME}" ]; then
+            echo "::error::期望的构建产物 build/libs/${JAR_NAME} 不存在，实际内容："
+            ls -la build/libs/
+            exit 1
+          fi
+          echo "jar-name=${JAR_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.locate-jar.outputs.jar-name }}
+          path: build/libs/${{ steps.locate-jar.outputs.jar-name }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    # 只有打 v*.*.* 格式的 tag 才跑这个 job；普通 push 到 main 或手动触发
+    # 都会在上面 build job 结束后直接停止，不会创建 Release。
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 创建 Release 需要写权限
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.jar-name }}
+          path: build/libs
+
+      - name: Extract version from tag
+        id: version
+        # tag 形如 refs/tags/v0.8.0 -> 0.8.0（去掉 refs/tags/v 前缀）
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Sanity check tag matches gradle.properties
+        # 防呆检查：tag 版本号必须和 gradle.properties 里的 mod_version 一致，
+        # 否则很容易出现"忘记在合并到 main 后同步改 mod_version 就打了 tag"
+        # 导致 Release 名字和实际 jar 版本号对不上的问题。不一致时直接失败，
+        # 而不是发布一个版本号错乱的 Release。
+        run: |
+          MOD_VERSION=$(grep '^mod_version=' gradle.properties | cut -d= -f2)
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "${MOD_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "::error::tag 版本号 (${TAG_VERSION}) 与 gradle.properties 里的 mod_version (${MOD_VERSION}) 不一致，请检查后重新打 tag。"
+            exit 1
+          fi
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          set -e
+          python3 .github/scripts/extract_changelog.py "${{ steps.version.outputs.version }}" README.md > changelog_body.md
+          echo "已提取到以下更新日志内容："
+          cat changelog_body.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: MCCF ${{ steps.version.outputs.tag }}
+          body_path: changelog_body.md
+          files: build/libs/${{ needs.build.outputs.jar-name }}
+          # 版本号里带 -alpha/-beta/-rc 等后缀的 tag 自动标记为预发布；
+          # 纯 x.y.z 格式（当前项目一直是这种）标记为正式发布。目前项目还没有
+          # 用过预发布后缀，加这个判断是为未来留的扩展空间，不影响现状。
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          draft: false

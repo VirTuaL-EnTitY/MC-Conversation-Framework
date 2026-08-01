@@ -25,6 +25,8 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
+import java.util.List;
+
 /**
  * MCCF 客户端入口。
  *
@@ -95,12 +97,8 @@ public class MCCFClient implements ClientModInitializer {
 						} else {
 							addVisibleToChatHud(payload.speakerName(), payload.originalText());
 						}
-						net.mccf.mod.client.history.ChatHistoryManager.record(
-								new net.mccf.mod.client.history.ChatHistoryEntry(
-										payload.speakerId(), payload.speakerName(),
-										payload.originalText(), payload.originalText(),
-										net.mccf.mod.client.history.ChatHistoryEntry.Source.SELF,
-										System.currentTimeMillis()));
+						recordConversationHistory(payload,
+								net.mccf.mod.client.history.ChatHistoryEntry.Source.SELF);
 					} else if (ClientOnlyModeManager.isClientOnlyModeActive()) {
 						// 退回方案：旧服务端不认识 ModePreferencePayload，依旧会拦截原版聊天改发
 						// SubtitlePayload。客户端收不到 CHAT 事件，ClientOnlyChatTranslator 的 CHAT
@@ -122,23 +120,58 @@ public class MCCFClient implements ClientModInitializer {
 						// 看到的这几位"的需求。AUDIBLE（看不到）依旧走 SubtitleManager → 物品栏上方
 						// 字幕，保持原时长（2.5~8s）不变。
 						//
-						// 显示格式选"仅译文一行"：原版聊天是 <Steve> 文本，这里把文本替换成服务端
-						// 已翻好的译文，视觉上和正常聊天栏一致，最简洁。原文不重复显示（服务端
-						// 空间化已把原版广播拦截掉了，聊天栏里本就没有原文，由这里补一条译文）。
-						addVisibleToChatHud(payload.speakerName(), payload.translatedText());
-						net.mccf.mod.client.history.ChatHistoryManager.record(
-								new net.mccf.mod.client.history.ChatHistoryEntry(
-										payload.speakerId(), payload.speakerName(),
-										payload.originalText(), payload.translatedText(),
-										net.mccf.mod.client.history.ChatHistoryEntry.Source.VISIBLE,
-										System.currentTimeMillis()));
+						// 是否显示原文：由服务端的 showOriginalTextInChat 开关决定——服务端只有开启
+						// 时才会在 originalText 里填入原文，关闭时这个字段是空字符串（见
+						// SpatialChatHandler#dispatchTo 的 includeOriginal 逻辑）。客户端不需要
+						// 自己知道这个开关的值，只需要看 originalText 是否非空即可决定展示格式：
+						// 非空时按 <名字> 原文 + ⇄ 译文 两行展示（模仿纯客户端模式 ClientOnlyChatTranslator
+						// 的追加格式，应用户明确要求"模仿一下客户端模式的那个字幕"）；为空时维持原来
+						// "仅译文一行"的格式，不产生视觉差异回归。
+						if (payload.originalText() != null && !payload.originalText().isBlank()) {
+							addVisibleToChatHud(payload.speakerName(), payload.originalText());
+							MinecraftClient.getInstance().inGameHud.getChatHud().addMessage(
+									Text.literal("⇄ " + payload.translatedText()).formatted(Formatting.GRAY));
+						} else {
+							addVisibleToChatHud(payload.speakerName(), payload.translatedText());
+						}
+						recordConversationHistory(payload,
+								net.mccf.mod.client.history.ChatHistoryEntry.Source.VISIBLE);
 					} else {
 						SubtitleManager.onReceive(payload);
-						net.mccf.mod.client.history.ChatHistoryManager.record(
-								new net.mccf.mod.client.history.ChatHistoryEntry(
-										payload.speakerId(), payload.speakerName(),
-										payload.originalText(), payload.translatedText(),
-										net.mccf.mod.client.history.ChatHistoryEntry.Source.AUDIBLE,
+						recordConversationHistory(payload,
+								net.mccf.mod.client.history.ChatHistoryEntry.Source.AUDIBLE);
+					}
+				}));
+
+		// Conversation 参与者名单更新：服务端只在名单真正变化时才发（见服务端
+		// SpatialChatHandler#broadcastConversationRoster）。客户端更新本地
+		// ConversationRosterManager 记录，并据此生成一条系统提示写入历史——
+		// 如果这是这个 Conversation 第一次被记录，提示"开始了一段新对话"；
+		// 否则提示"XX 加入了对话"（列出这次真正新增的人，可能是一个或多个）。
+		ClientPlayNetworking.registerGlobalReceiver(
+				net.mccf.mod.network.ConversationRosterPayload.ID, (payload, context) ->
+				context.client().execute(() -> {
+					boolean isFirst = net.mccf.mod.client.history.ConversationRosterManager
+							.isFirstRoster(payload.conversationId());
+					var newlyAdded = net.mccf.mod.client.history.ConversationRosterManager.update(
+							payload.conversationId(), payload.participantIds(), payload.participantNames());
+
+					if (isFirst) {
+						net.mccf.mod.client.history.ChatHistoryManager.recordSystemEvent(
+								new net.mccf.mod.client.history.ChatHistorySystemEvent(
+										payload.conversationId(),
+										net.mccf.mod.client.history.ChatHistorySystemEvent.Type.CONVERSATION_STARTED,
+										java.util.List.of(),
+										System.currentTimeMillis()));
+					} else if (!newlyAdded.isEmpty()) {
+						List<String> names = newlyAdded.stream()
+								.map(net.mccf.mod.client.history.ConversationRosterManager.RosterEntry::displayName)
+								.toList();
+						net.mccf.mod.client.history.ChatHistoryManager.recordSystemEvent(
+								new net.mccf.mod.client.history.ChatHistorySystemEvent(
+										payload.conversationId(),
+										net.mccf.mod.client.history.ChatHistorySystemEvent.Type.PARTICIPANT_JOINED,
+										names,
 										System.currentTimeMillis()));
 					}
 				}));
@@ -195,10 +228,12 @@ public class MCCFClient implements ClientModInitializer {
 			}
 		});
 
-		// 断开连接时清空本地字幕状态 + 聊天历史 + 重置模式检测结果，避免残留到下一局/下一个服务器。
+		// 断开连接时清空本地字幕状态 + 聊天历史 + 对话名单 + 重置模式检测结果，
+		// 避免残留到下一局/下一个服务器。
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
 			SubtitleManager.clear();
 			net.mccf.mod.client.history.ChatHistoryManager.clear();
+			net.mccf.mod.client.history.ConversationRosterManager.clear();
 			ClientOnlyModeManager.onDisconnect();
 		});
 
@@ -249,13 +284,28 @@ public class MCCFClient implements ClientModInitializer {
 	}
 
 	/**
-	 * 把一条 VISIBLE 消息以"仅译文一行"格式追加进原版聊天栏，视觉上和正常聊天
-	 * (<Steve> 文本) 一致，只是文本已是服务端翻好的译文。
-	 *
-	 * 为什么不复用 ClientOnlyChatTranslator 的 "⇄ 译文" 两行格式：那是纯客户端模式
-	 * 下的设计——那里原文会照常出现在聊天栏，译文需要靠 "⇄" 前缀和灰色区分以示
-	 * "这是翻译"。而服务端空间化模式下原版广播已被拦截、聊天栏里没有原文，再叠
-	 * 一行 "⇄" 会显得多余；按用户要求选最简洁的"仅译文一行"，和正常聊天无视觉差。
+	 * 把一条聊天消息（SELF/VISIBLE/AUDIBLE 三种来源共用）写入
+	 * {@link net.mccf.mod.client.history.ChatHistoryManager}，携带
+	 * conversationId/sourceLang/targetLang——这几个字段都是从同一个
+	 * SubtitlePayload 上取的，三处调用点字段来源完全一致，抽成公共方法
+	 * 避免每处都重复写一遍完整的 record 构造。
+	 */
+	private static void recordConversationHistory(SubtitlePayload payload,
+			net.mccf.mod.client.history.ChatHistoryEntry.Source source) {
+		net.mccf.mod.client.history.ChatHistoryManager.record(
+				new net.mccf.mod.client.history.ChatHistoryEntry(
+						payload.speakerId(), payload.speakerName(),
+						payload.originalText(), payload.translatedText(),
+						source, System.currentTimeMillis(),
+						payload.conversationId(), payload.sourceLang(), payload.targetLang()));
+	}
+
+	/**
+	 * 把一条 VISIBLE 消息追加进原版聊天栏。默认"仅译文一行"格式，视觉上和
+	 * 正常聊天 (<Steve> 文本) 一致；如果服务端开启了 showOriginalTextInChat
+	 * （见调用点判断 payload.originalText() 是否非空），则改为两行——第一行
+	 * <名字> 原文，第二行灰色 "⇄ 译文"，格式模仿纯客户端模式
+	 * ClientOnlyChatTranslator 的追加样式（应用户明确要求）。
 	 */
 	private static void addVisibleToChatHud(String speakerName, String translatedText) {
 		MinecraftClient client = MinecraftClient.getInstance();

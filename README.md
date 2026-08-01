@@ -1,4 +1,4 @@
-# MC Conversation Framework (MCCF)
+# MC Conversation Framework
 
 **[English README](README_EN.md)** | 简体中文（当前）
 
@@ -382,6 +382,104 @@ src/client/java/net/mccf/mod/client/
 ---
 
 ## 八、更新日志
+
+### 2026-07-30　0.12.0 提示区改为悬浮 tooltip + 聊天历史复用服务端 Conversation 分组 + 聊天栏可选显示原文 + 元信息补全
+
+响应用户三方面反馈：(1) 配置界面提示文字位置不合理，截图显示大片空白区域；
+(2) 聊天历史记录应该复用服务端已有的 Conversation（对话）分组机制，而不是
+客户端自己按时间聚类猜测，并且要同时展示原文和译文；(3) 聊天栏（VISIBLE）
+需要一个独立开关来决定要不要显示原文，以及作者信息/ModMenu 链接的收尾。
+
+**1. 配置界面提示区改为悬浮 tooltip（修复大片空白问题）**
+- 根因：`BOTTOM_HINT_AREA_HEIGHT` 之前固定预留 100px 给"Provider 说明 +
+  状态消息"常驻文字，但日常使用中 Provider 说明这类不紧急信息完全占用不到
+  这么多空间，导致界面下方出现用户反馈的"接近 1.8/4 屏幕高度"的空白。
+- 修复：Provider 说明（"需要 API Key，支持上下文"这类）改为鼠标悬浮在
+  顶部 Provider 标题上时才弹出的 `DrawContext.drawTooltip`，不再常驻占用
+  空间；悬浮判定区域用 `textRenderer` 实际测量的文字宽度构造，不同语言的
+  Provider 名称长度差异很大，不用硬编码宽度。状态消息（加载中/超时未安装/
+  保存成功失败）继续常驻显示——这些是玩家必须立刻看到的信息，不适合藏进
+  tooltip。`BOTTOM_HINT_AREA_HEIGHT` 相应从 100px 缩小到 50px。
+- 涉及文件：`ServerConfigPanel.java`、`LocalConfigPanel.java`、
+  `MCCFConfigScreen.java`。
+
+**2.（协议扩展）聊天历史记录复用服务端 Conversation 分组机制**
+- `SubtitlePayload` 新增 `conversationId`（所属 Conversation 的 id）、
+  `sourceLang`/`targetLang`（说话者语言、听众目标语言，用于历史记录显示
+  语言标签）三个字段。由于项目此前所有 payload 最多用到 5 字段的
+  `PacketCodec.tuple(...)` 重载，字段数继续增加时是否有对应重载没有先例
+  可核对，本次改为手写 `PacketCodec.of(encoder, decoder)` 实现编解码，
+  不依赖任何不确定的重载数量。
+- 新增 `ConversationRosterPayload`（独立网络包）：同步某个 Conversation
+  当前完整的参与者名单（UUID + 显示名），只在参与者集合真正发生变化时
+  才发送（不是每条消息都带完整名单，避免带宽浪费）——`Conversation
+  .addParticipant` 改为返回 `boolean`（是否真的新增了成员，复用
+  `Set.add()` 本身的语义），`ConversationManager.recordUtterance` 返回类型
+  改为 `UtteranceResult`（Conversation + 这次真正新增的参与者集合），
+  `SpatialChatHandler` 据此判断要不要调用新增的 `broadcastConversationRoster`。
+- **执行顺序调整**：`Conversation` 的创建/归组这一步从"只在有听众时才执行"
+  提前到"无论有没有听众都先执行"，让说话者本人始终先被归入一个
+  Conversation（哪怕周围没人、只有他自己）——这样自己的"自言自语"回显
+  消息在历史记录里也能正常归组，不需要特殊标识表示"不属于任何对话组"
+  （应用户明确要求）。相应地，`dispatchSelfEcho` 现在携带 `conversationId`
+  参数。
+- 客户端新增 `ConversationRosterManager`（维护 conversationId → 参与者
+  名单的本地映射）、`ChatHistorySystemEvent`（"开始了一段新对话"/
+  "XX 加入了对话"系统提示，独立于 `ChatHistoryEntry` 建模，避免让聊天
+  消息类型的大部分字段在系统提示场景下变成 null）、`ChatTimelineItem`
+  （sealed interface，统一聊天消息和系统事件在同一条时间线上排序）。
+- `ChatHistoryManager` 新增 `groupedSnapshot()`：按 conversationId 分组、
+  组内按时间排序，包装成 `ConversationGroup` 列表直接供界面渲染——无归属
+  消息（纯客户端模式的 CLIENT_ONLY，没有服务端 Conversation 概念）各自
+  单独成组。
+- `ChatHistoryScreen` 彻底重写：大标题列出该 Conversation 里出现过的
+  所有参与者显示名（"LimAimo、test、Alex 的对话"，用带 `%s` 占位符的
+  完整句子模板 `mccf.history.conversation_title`，而不是代码里拼接
+  "名字+固定后缀"——不同语言的语序差异很大，比如英语是所有格后缀
+  "%s's conversation"，中文是前缀"%s的对话"，固定拼接方式会强迫所有
+  语言迁就同一种语序）；组内消息和系统提示按时间混排展示；每条消息同时
+  显示原文和译文，语言不同时追加 `[源语言→目标语言]` 标签（语言代码
+  按原始格式显示，如 "zh_cn"，不做本地化名称转换）。
+- **第三者能否算"加入对话"完全由服务端下发的数据决定**：服务端只会把
+  `ConversationRosterPayload` 发给"当时确实能收到这条对话消息的人"，
+  所以 A 看不到 Alex、B 看得到 Alex 时，A 的历史记录里天然不会出现
+  "Alex 加入了对话"——这是客户端完全被动接收数据的自然结果，不需要
+  客户端做任何额外判断（应用户明确要求的判定基准）。
+
+**3. 聊天栏（VISIBLE）显示原文独立开关**
+- 新增 `MCCFConfig.showOriginalTextInChat`（默认关闭），与原有的
+  `showOriginalText`（现更名注释为"控制 AUDIBLE 物品栏字幕"）分开维护——
+  管理员可能只想让聊天栏显示原文，不想让物品栏字幕也变长。
+  `SpatialChatHandler#dispatchTo` 按 `displayMode` 选用对应的开关。
+- 客户端 `MCCFClient` 的 VISIBLE 分支：`originalText` 非空时（服务端开启
+  了这个开关）展示两行——第一行 `<名字> 原文`，第二行灰色 `⇄ 译文`，
+  格式模仿纯客户端模式 `ClientOnlyChatTranslator` 的追加样式（应用户
+  明确要求"模仿一下客户端模式的那个字幕"）；为空时维持原来"仅译文一行"
+  的格式，不产生视觉差异回归。
+- `ServerConfigPanel` 新增两个并排的 `CyclingButtonWidget<Boolean>`
+  开关（"字幕显示原文"/"聊天栏显示原文"），`ClientConfigState`/
+  `ConfigSyncHandler` 相应新增这两个字段的快照读取与更新提交逻辑。
+
+**4. 元信息补全**
+- `fabric.mod.json`：`authors` 从占位符 `"You"` 改为 `"LimAimo"`；
+  `contact.homepage`/`contact.issues`/`contact.sources` 从占位的
+  `example.com` 改为指向 GitHub 仓库
+  （`VirTuaL-EnTitY/MC-Conversation-Framework-1.21.1`）及其 Issues 页——
+  ModMenu 的"网站"/"问题"按钮直接读取这两个字段渲染，之前因为字段缺失/
+  占位而没有实际作用。
+
+版本号 `0.11.0` → `0.12.0`（按 9.1 规则升 minor：网络协议扩展 + 重大功能
+新增，非破坏性——旧客户端连接新服务端会因为 `SubtitlePayload` 字段数变化
+导致反序列化失败，这是预期的行为，MCCF 客户端和服务端本来就要求版本匹配）。
+
+**已知限制**：
+- `SubtitlePayload` 协议改动意味着这个版本的客户端和服务端必须同时更新
+  才能正常通信——字段数变化会导致新旧版本之间的 `PacketCodec` 解码不兼容。
+  这不是新引入的限制（项目此前也没有做过跨版本协议兼容层），但值得记录：
+  以后每次修改这类核心 payload 的字段结构，都应该视为"不兼容变更"对待。
+- 语言标签使用原始语言代码（如 "zh_cn"），未做本地化名称转换（如显示
+  "中文" 而非 "zh_cn"）——应用户明确要求保持简单，不引入额外的语言名称
+  映射维护成本。
 
 ### 2026-07-30　0.11.0 提示文字迁移到左下角空白区 + 修复两处误导性状态显示（未连接检测行、无限期加载中）
 

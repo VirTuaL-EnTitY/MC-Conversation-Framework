@@ -33,14 +33,32 @@ public class ClientConfigState {
 	public boolean canEdit = false;
 	public String activeProvider = "mock";
 	/**
-	 * UI 中“待启用”的 Provider：当玩家在服务端面板点击“保存并启用”时写入此字段；
-	 * 收到服务端快照后由 applySnapshot 重置为服务端确认值。
+	 * UI 中"待启用"的 Provider：0.10.0 起，玩家点击"保存"时会把当前左侧列表
+	 * 选中查看的 Provider 写入此字段（不再有单独的"设为默认"/"保存并启用"
+	 * 按钮，保存这一个动作同时完成"保存字段改动"和"设为默认"两件事，见
+	 * ServerConfigPanel#onSave）。收到服务端快照后由 applySnapshot 重置为
+	 * 服务端确认值。
 	 */
 	public String pendingActiveProvider = "mock";
 	public final Map<String, ClientProviderConfig> providers = new LinkedHashMap<>();
 
 	/** 是否已经从服务端收到过至少一次快照（用于 Screen 判断是否还在等待数据）。 */
 	public boolean hasReceivedSnapshot = false;
+
+	/**
+	 * 是否在物品栏上方字幕（AUDIBLE 模式）中同时显示原文和译文——对应服务端
+	 * {@code MCCFConfig#showOriginalText}。从快照里读取展示当前状态，编辑后
+	 * 随 activeProvider 等字段一起提交。
+	 */
+	public boolean showOriginalText = true;
+
+	/**
+	 * 是否在聊天栏（VISIBLE 模式）中同时显示原文和译文——对应服务端
+	 * {@code MCCFConfig#showOriginalTextInChat}。与 {@link #showOriginalText}
+	 * 分开维护，理由同服务端注释：管理员可能只想让聊天栏显示原文，不想让
+	 * 物品栏字幕也变长。
+	 */
+	public boolean showOriginalTextInChat = false;
 
 	private static ClientConfigState instance;
 
@@ -58,6 +76,9 @@ public class ClientConfigState {
 		this.canEdit = root.has("canEdit") && root.get("canEdit").getAsBoolean();
 		this.activeProvider = root.has("activeProvider") ? root.get("activeProvider").getAsString() : "mock";
 		this.pendingActiveProvider = this.activeProvider;
+		this.showOriginalText = !root.has("showOriginalText") || root.get("showOriginalText").getAsBoolean();
+		this.showOriginalTextInChat = root.has("showOriginalTextInChat")
+				&& root.get("showOriginalTextInChat").getAsBoolean();
 
 		providers.clear();
 		if (root.has("providers")) {
@@ -100,6 +121,8 @@ public class ClientConfigState {
 	public String buildUpdateJson() {
 		JsonObject root = new JsonObject();
 		root.addProperty("activeProvider", pendingActiveProvider == null ? activeProvider : pendingActiveProvider);
+		root.addProperty("showOriginalText", showOriginalText);
+		root.addProperty("showOriginalTextInChat", showOriginalTextInChat);
 
 		JsonObject providersJson = new JsonObject();
 		for (Map.Entry<String, ClientProviderConfig> entry : providers.entrySet()) {

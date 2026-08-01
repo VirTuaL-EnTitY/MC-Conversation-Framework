@@ -12,6 +12,7 @@ import net.mccf.mod.config.MCCFConfig;
 import net.mccf.mod.context.ConversationManager;
 import net.mccf.mod.dictionary.WorldDictionary;
 import net.mccf.mod.network.ConfigSnapshotPayload;
+import net.mccf.mod.network.ConversationRosterPayload;
 import net.mccf.mod.network.LanguageReportPayload;
 import net.mccf.mod.network.ModePreferencePayload;
 import net.mccf.mod.network.ModelsResultPayload;
@@ -67,6 +68,7 @@ public class MCCF implements ModInitializer {
 
 		// 4. 注册网络负载类型（服务端 <-> 客户端）
 		PayloadTypeRegistry.playS2C().register(SubtitlePayload.ID, SubtitlePayload.CODEC);
+		PayloadTypeRegistry.playS2C().register(ConversationRosterPayload.ID, ConversationRosterPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(LanguageReportPayload.ID, LanguageReportPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestConfigPayload.ID, RequestConfigPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ConfigSnapshotPayload.ID, ConfigSnapshotPayload.CODEC);
