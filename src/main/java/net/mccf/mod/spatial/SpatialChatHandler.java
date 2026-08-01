@@ -4,6 +4,7 @@ import net.mccf.mod.MCCF;
 import net.mccf.mod.config.MCCFConfig;
 import net.mccf.mod.context.Conversation;
 import net.mccf.mod.context.ConversationManager;
+import net.mccf.mod.network.ConversationRosterPayload;
 import net.mccf.mod.network.SubtitlePayload;
 import net.mccf.mod.translation.TranslationService;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -12,6 +13,7 @@ import net.minecraft.network.message.SignedMessage;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -90,23 +92,48 @@ public class SpatialChatHandler {
 
 		String speakerName = sender.getGameProfile().getName();
 
+		// 2. 驱动 Conversation 合并/拆分（原则：距离 + 主动发言）。
+		//
+		// 这一步现在无论 allListeners 是否为空都要执行（提前到"是否有听众"判断
+		// 之前），保证说话者本人始终先被归入一个 Conversation——哪怕周围完全
+		// 没人、只有他自己一个参与者。这是为了让 dispatchSelfEcho 发出的自己
+		// 回显消息始终携带一个有效的 conversationId，客户端聊天历史记录里
+		// 才能把"自言自语"也正常归组显示，而不是用一个特殊的空/随机标识表示
+		// "不属于任何对话组"（应用户明确要求：无论有没有听众，都先归组）。
+		//
+		// audienceIds 为空集合时，recordUtterance 只会把 speaker 自己加入
+		// Conversation（见该方法实现），这与"周围没人，Conversation 里只有
+		// 我自己"的语义完全吻合，不需要特殊分支处理。
+		Set<UUID> audienceIds = allListeners.stream().map(ServerPlayerEntity::getUuid).collect(Collectors.toSet());
+		long currentTick = server.getTicks();
+		ConversationManager.UtteranceResult utterance = conversationManager.recordUtterance(sender.getUuid(), audienceIds, currentTick);
+		Conversation conversation = utterance.conversation();
+		conversation.recordMessage(sender.getUuid(), rawText, currentTick);
+
 		// 无论其他人能否听到，说话者本人始终应该在自己的客户端上看到自己刚说的话——
 		// 这跟原版聊天行为一致（原版广播里说话者也会收到自己发的消息），MCCF 接管分发后
 		// 不该丢失这个基本体验。回显不翻译（自己的话不需要翻译给自己看），displayMode
 		// 跟随"本次发言时，其他听众里哪种关系占多数"（见 dispatchSelfEcho 说明）。
-		dispatchSelfEcho(sender, speakerName, rawText, hearing);
+		dispatchSelfEcho(sender, speakerName, rawText, hearing, conversation.getId());
 
-		if (allListeners.isEmpty()) {
-			// 没有任何人能听到——原则 2 的直接体现：这句话不会被任何人、
-			// 也不会被任何 Conversation 记录，自然也不会进入任何 AI 上下文。
-			return false;
+		// 只在这次发言真的给 Conversation 带来了新成员时，才广播最新的完整
+		// 参与者名单给该 Conversation 当前的所有人——应用户明确要求，不要
+		// 无条件每次发言都广播（那样最简单但浪费带宽）。newlyJoined 为空
+		// （同一批人持续对话、没人新加入）时跳过，这是最常见的情况，
+		// 大部分发言根本不需要这次网络开销。
+		if (!utterance.newlyJoined().isEmpty()) {
+			broadcastConversationRoster(conversation, server);
 		}
 
-		// 2. 驱动 Conversation 合并/拆分（原则：距离 + 主动发言）。
-		Set<UUID> audienceIds = allListeners.stream().map(ServerPlayerEntity::getUuid).collect(Collectors.toSet());
-		long currentTick = server.getTicks();
-		Conversation conversation = conversationManager.recordUtterance(sender.getUuid(), audienceIds, currentTick);
-		conversation.recordMessage(sender.getUuid(), rawText, currentTick);
+		if (allListeners.isEmpty()) {
+			// 没有任何人能听到——原则 2 的直接体现：这句话不会被任何人看到/听到，
+			// 也不会作为"可翻译上下文"分发给任何其他听众；但 Conversation 本身
+			// （只包含说话者自己）仍然存在，用于让自己的历史记录正确归组，见上方
+			// 调整顺序的说明。这跟"原则 2：信息只会传播到真正能够接收到它的人"
+			// 并不矛盾——没有人以外的第三方会知道/记录这句话，只是说话者自己的
+			// 客户端知道自己说了什么，这本来就是天经地义的。
+			return false;
+		}
 
 		// 3. 为该 Conversation 构造严格受限的上下文（仅限当前仍在场成员的近期发言）。
 		List<String> contextMessages = conversation.getRecentMessages().stream()
@@ -116,10 +143,48 @@ public class SpatialChatHandler {
 		String sourceLang = PlayerLanguageRegistry.getLanguage(sender.getUuid());
 
 		// 4. 对每个听众：确定显示模式 -> 翻译 -> 发送字幕包。
-		dispatchTo(hearing.visible(), sender, speakerName, rawText, sourceLang, contextMessages, "VISIBLE");
-		dispatchTo(hearing.audibleOnly(), sender, speakerName, rawText, sourceLang, contextMessages, "AUDIBLE");
+		dispatchTo(hearing.visible(), sender, speakerName, rawText, sourceLang, contextMessages, "VISIBLE", conversation.getId());
+		dispatchTo(hearing.audibleOnly(), sender, speakerName, rawText, sourceLang, contextMessages, "AUDIBLE", conversation.getId());
 
 		return false;
+	}
+
+	/**
+	 * 把某个 Conversation 当前的完整参与者名单（UUID + 显示名）广播给该
+	 * Conversation 的所有参与者——不只是新加入的人，老成员也需要更新本地
+	 * "这个对话现在都有谁"的状态（用于聊天历史记录界面的大标题/"XX 加入了
+	 * 对话"提示）。
+	 *
+	 * 跳过条件：
+	 * - 玩家已不在线（Conversation 的 participants 集合可能包含刚下线、
+	 *   还没被清理掉的玩家 UUID——见 ConversationManager 的过期/清理机制，
+	 *   这里防御性地用 getPlayerManager().getPlayer 拿不到就跳过）。
+	 * - 玩家是 client-only 模式（他们的聊天历史记录走完全独立的本地路径
+	 *   {@code ClientOnlyChatTranslator}，没有"服务端 Conversation"这个概念，
+	 *   发这个包给他们没有意义，白白浪费一次网络往返）。
+	 */
+	private void broadcastConversationRoster(Conversation conversation, MinecraftServer server) {
+		List<UUID> ids = new ArrayList<>();
+		List<String> names = new ArrayList<>();
+		for (UUID participantId : conversation.getParticipants()) {
+			ServerPlayerEntity participant = server.getPlayerManager().getPlayer(participantId);
+			if (participant == null) continue; // 已下线，跳过（不影响其他在线成员收到名单）
+			ids.add(participantId);
+			names.add(participant.getGameProfile().getName());
+		}
+		if (ids.isEmpty()) return;
+
+		ConversationRosterPayload roster = new ConversationRosterPayload(conversation.getId(), ids, names);
+		for (UUID participantId : conversation.getParticipants()) {
+			ServerPlayerEntity participant = server.getPlayerManager().getPlayer(participantId);
+			if (participant == null) continue;
+			if (ClientOnlyModeRegistry.isClientOnly(participantId)) continue;
+			server.execute(() -> {
+				if (participant.networkHandler != null) {
+					ServerPlayNetworking.send(participant, roster);
+				}
+			});
+		}
 	}
 
 	/**
@@ -140,10 +205,15 @@ public class SpatialChatHandler {
 	 * 聊天框比一闪而过的字幕更保险，避免独自一人说话时消息被错过。
 	 */
 	private void dispatchSelfEcho(ServerPlayerEntity sender, String speakerName, String rawText,
-			HearingResolver.HearingResult hearing) {
+			HearingResolver.HearingResult hearing, UUID conversationId) {
 		if (sender.networkHandler == null) return;
 		String displayMode = hearing.visible().size() >= hearing.audibleOnly().size() ? "VISIBLE" : "AUDIBLE";
-		SubtitlePayload echo = new SubtitlePayload(sender.getUuid(), speakerName, rawText, rawText, displayMode);
+		// 自己回显不翻译，sourceLang == targetLang（都是说话者自己的语言）——
+		// 历史记录界面据此判断"这条消息不需要显示语言标签"（源语言=目标语言时，
+		// 说明没有发生真正的翻译，不需要画"中文→英语"这种箭头）。
+		String selfLang = PlayerLanguageRegistry.getLanguage(sender.getUuid());
+		SubtitlePayload echo = new SubtitlePayload(
+				sender.getUuid(), speakerName, rawText, rawText, displayMode, conversationId, selfLang, selfLang);
 		sender.getServer().execute(() -> {
 			if (sender.networkHandler != null) {
 				ServerPlayNetworking.send(sender, echo);
@@ -152,7 +222,7 @@ public class SpatialChatHandler {
 	}
 
 	private void dispatchTo(List<ServerPlayerEntity> listeners, ServerPlayerEntity sender, String speakerName,
-			String rawText, String sourceLang, List<String> contextMessages, String displayMode) {
+			String rawText, String sourceLang, List<String> contextMessages, String displayMode, UUID conversationId) {
 		for (ServerPlayerEntity listener : listeners) {
 			// 对 client-only 听众不发字幕：避免给已经选择本地翻译的玩家发服务端字幕，
 			// 造成"原版聊天 + 服务端字幕 + 本地翻译追加"三重叠加显示。这些听众会从原版
@@ -165,11 +235,19 @@ public class SpatialChatHandler {
 
 			String targetLang = PlayerLanguageRegistry.getLanguage(listener.getUuid());
 
+			// 是否携带原文：VISIBLE（聊天栏）和 AUDIBLE（物品栏字幕）分别由独立的开关控制
+			// （showOriginalTextInChat / showOriginalText），互不影响——见 MCCFConfig 里
+			// 两个字段各自的注释说明，应用户明确要求分开配置。
+			boolean includeOriginal = "VISIBLE".equals(displayMode)
+					? config.showOriginalTextInChat
+					: config.showOriginalText;
+
 			translationService.translate(rawText, sourceLang, targetLang, contextMessages)
 					.thenAccept(translated -> {
-						String shownOriginal = config.showOriginalText ? rawText : "";
+						String shownOriginal = includeOriginal ? rawText : "";
 						SubtitlePayload payload = new SubtitlePayload(
-								sender.getUuid(), speakerName, shownOriginal, translated, displayMode);
+								sender.getUuid(), speakerName, shownOriginal, translated, displayMode,
+								conversationId, sourceLang, targetLang);
 						// 网络发送必须回到服务器主线程执行。
 						sender.getServer().execute(() -> {
 							if (listener.networkHandler != null) {

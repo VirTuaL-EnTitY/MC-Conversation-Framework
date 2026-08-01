@@ -42,8 +42,9 @@ public class Conversation {
 		return participants;
 	}
 
-	public void addParticipant(UUID playerId) {
-		participants.add(playerId);
+	/** @return 是否真的加入了新成员（如果该玩家已经在 participants 里，返回 false）。 */
+	public boolean addParticipant(UUID playerId) {
+		return participants.add(playerId);
 	}
 
 	public void removeParticipant(UUID playerId) {

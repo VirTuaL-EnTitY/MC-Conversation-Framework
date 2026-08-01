@@ -2,6 +2,8 @@ package net.mccf.mod.client.config;
 
 import net.mccf.mod.client.history.ChatHistoryEntry;
 import net.mccf.mod.client.history.ChatHistoryManager;
+import net.mccf.mod.client.history.ChatHistorySystemEvent;
+import net.mccf.mod.client.history.ChatTimelineItem;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -13,15 +15,12 @@ import net.minecraft.util.Colors;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
- * 聊天历史记录界面：展示本次连接期间 {@link ChatHistoryManager} 记录下的所有消息
- * （自己发的 + 收到的，无论是 VISIBLE 聊天框、AUDIBLE 物品栏字幕还是纯客户端模式
- * 本地翻译追加），按时间倒序（最新的在最上面）排列。
+ * 聊天历史记录界面：展示本次连接期间 {@link ChatHistoryManager} 记录下的所有消息，
+ * 按服务端 Conversation 分组展示（对应服务端 {@code net.mccf.mod.context.Conversation}
+ * 的对话合并/拆分机制，应用户明确要求"搬一下多人上下文的那个管理机制"）。
  *
  * 存在的意义：字幕会自动淡出（AUDIBLE 2.5~8 秒、VISIBLE 也是临时消息），玩家
  * 稍微一走神就会错过内容；这个界面让玩家能随时回溯"刚才这段时间发生了什么对话"，
@@ -34,18 +33,20 @@ import java.util.List;
  * 只读界面：没有编辑/删除单条记录的功能（不是聊天工具，是"回看"工具），
  * 只提供"关闭"按钮返回。
  *
- * 对话分组：消息按时间间隔聚类成"对话组"（相邻两条间隔超过 {@link #GROUP_GAP_MS}
- * 无新消息则视为新对话开始），每组顶部显示一行参与者标题——多人参与显示
- * "A、B、C 的对话"，单人连续发言显示"X 的自言自语"。这样玩家一眼能看出每段
- * 聊天是谁和谁之间的，而不是一堆孤立的"某人说了什么"。
- *
- * 为什么用客户端时间聚类而不是服务端 Conversation 分组：纯客户端模式下根本没有
- * 服务端 Conversation 信息可用（消息来自 ClientOnlyChatTranslator 的本地翻译），
- * 若按服务端分组会导致两套数据源、两套渲染逻辑；而历史回看对"对话边界精度"
- * 要求不高（不需要精确到 ConversationManager 的空间合并语义），统一用时间聚类
- * 既覆盖两种模式又只用一套逻辑。代价是：两个独立对话若间隔不足 30 秒会被合并成
- * 一组、一个长对话若中间沉默超过 30 秒会被拆成两组——对"回看个大概"可接受，
- * 不满意再调 {@link #GROUP_GAP_MS}。
+ * 分组方式（{@link ChatHistoryManager#groupedSnapshot()} 已经整理好）：
+ * - 大标题：这个 Conversation 里出现过的所有人名（"LimAimo、test、Alex 的对话"）——
+ *   用 {@code ConversationRosterManager} 记录的、服务端下发的权威参与者名单，
+ *   而不是客户端自己猜。
+ * - 组内混排：消息（原文+译文+语言标签）和系统提示（"开始了一段新对话"/
+ *   "XX 加入了对话"）按时间正序穿插展示——系统提示告诉玩家"这个对话是什么时候
+ *   开始的、中途谁加入了"，消息告诉玩家具体聊了什么。
+ * - 第三者能否算"加入对话"完全由服务端下发的数据决定：服务端只会把
+ *   ConversationRosterPayload 发给"当时确实能收到这条对话消息的人"（见服务端
+ *   SpatialChatHandler#broadcastConversationRoster），所以 A 看不到 Alex、
+ *   B 看得到 Alex 时，A 的历史记录里天然不会出现"Alex 加入了对话"——这是
+ *   客户端完全被动接收数据的自然结果，不需要客户端自己做任何额外判断。
+ * - 无归属消息（纯客户端模式的 CLIENT_ONLY，没有服务端 Conversation 概念）
+ *   各自单独成组，不与其他消息混在一起。
  */
 public class ChatHistoryScreen extends Screen {
 
@@ -56,14 +57,6 @@ public class ChatHistoryScreen extends Screen {
 	/** 展示用的时间格式：只显示时:分:秒，历史记录本身就限定在"这次连接期间"，日期没有意义。 */
 	private static final DateTimeFormatter TIME_FORMAT =
 			DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
-
-	/**
-	 * 对话组分界阈值（毫秒）：相邻两条消息间隔超过此值则视为新对话开始。
-	 * 取 30 秒——AUDIBLE 字幕最长相干时间约 8 秒（淡出），玩家正常对话节奏
-	 * 远小于 30 秒；超过 30 秒没人说话基本意味着话题中断或人散了。这是经验取值，
-	 * 没做严格统计，后续若发现分组过粗/过细可调整。
-	 */
-	private static final long GROUP_GAP_MS = 30_000L;
 
 	/**
 	 * 每条记录的行高（像素）。单行文字 9px + 上下各 1.5px padding ≈ 12，让一屏
@@ -87,47 +80,24 @@ public class ChatHistoryScreen extends Screen {
 		listWidget = new HistoryListWidget(MinecraftClient.getInstance(),
 				this.width, 32, this.height - 40, ITEM_HEIGHT);
 
-		List<ChatHistoryEntry> entries = ChatHistoryManager.snapshot();
+		List<ChatHistoryManager.ConversationGroup> groups = ChatHistoryManager.groupedSnapshot();
+		isEmpty = groups.isEmpty();
 
-		// 按时间正序聚类成对话组：相邻消息间隔超过 GROUP_GAP_MS 则断开。
-		// 先正序聚类、再整体倒序加入列表，保证"最新组在最上、组内最新消息在最上"，
-		// 与"玩家打开历史最想看刚才发生了什么"的诉求一致。
-		List<List<ChatHistoryEntry>> groups = new ArrayList<>();
-		List<ChatHistoryEntry> currentGroup = null;
-		long prevTime = Long.MIN_VALUE;
-		for (ChatHistoryEntry e : entries) {
-			if (currentGroup == null || (e.timestampMillis() - prevTime) > GROUP_GAP_MS) {
-				currentGroup = new ArrayList<>();
-				groups.add(currentGroup);
-			}
-			currentGroup.add(e);
-			prevTime = e.timestampMillis();
-		}
+		// groupedSnapshot() 已经按"组内最新消息时间"倒序排好（最近活跃的对话
+		// 排最前面），这里直接按返回顺序渲染，组内 items 是时间正序——为了
+		// 让"最新的在最上面"这个直觉在组内也成立，实际渲染时组内也倒序展示
+		// （与旧版本"最新消息在最上面"的展示习惯保持一致）。
+		for (ChatHistoryManager.ConversationGroup group : groups) {
+			listWidget.addEntry(new GroupTitleWidget(group));
 
-		isEmpty = entries.isEmpty();
-
-		// 倒序展示：最新对话组在最上面。
-		Collections.reverse(groups);
-		for (List<ChatHistoryEntry> group : groups) {
-			// 组内也倒序：组内最新消息在最上面。
-			Collections.reverse(group);
-
-			// 收集参与者（保持发言先后顺序去重），并取组内最新时间用于组标题右侧。
-			LinkedHashSet<String> participants = new LinkedHashSet<>();
-			long latestInGroup = Long.MIN_VALUE;
-			for (ChatHistoryEntry e : group) {
-				String name = e.speakerName();
-				if (name != null && !name.isBlank()) {
-					participants.add(name);
+			List<ChatTimelineItem> items = new java.util.ArrayList<>(group.items());
+			java.util.Collections.reverse(items);
+			for (ChatTimelineItem item : items) {
+				if (item instanceof ChatTimelineItem.Message m) {
+					listWidget.addEntry(new HistoryEntryWidget(m.entry()));
+				} else if (item instanceof ChatTimelineItem.SystemEvent s) {
+					listWidget.addEntry(new SystemEventWidget(s.event()));
 				}
-				if (e.timestampMillis() > latestInGroup) {
-					latestInGroup = e.timestampMillis();
-				}
-			}
-
-			listWidget.addEntry(new GroupHeaderWidget(participants, latestInGroup));
-			for (ChatHistoryEntry e : group) {
-				listWidget.addEntry(new HistoryEntryWidget(e));
 			}
 		}
 		addSelectableChild(listWidget);
@@ -167,14 +137,10 @@ public class ChatHistoryScreen extends Screen {
 	 * 参数</b>（列表底部由 y + height 决定）。{@code AlwaysSelectedEntryListWidget}
 	 * 同样只有这一个构造函数。
 	 *
-	 * <b>历史踩坑</b>：本项目曾误判这个签名。反编译 jar 只能看到参数类型
-	 * {@code (client, int, int, int, int)} 看不到参数名，叠加"老版本 1.20.x 是 6 参数
-	 * (client,w,h,top,bottom,itemHeight)"的先入为主，把 1.21.1 的 5 参数版本想成了
-	 * {@code (client, w, h, top, bottom)}，第 5 参数 bottom 被当成了底部坐标。实际第 5
-	 * 参数是 itemHeight，结果 {@code this.height - 40}（本应是 bottom）被传成 itemHeight，
-	 * 每条记录行高 = 整个列表区域高度，一屏只能看到一条消息——这正是用户反馈的
-	 * "一句话占用整个界面"的根因。本次修正：保留 top/bottom 语义方便 Screen 传入，
-	 * 内部换算成 height（= bottom - top）和 y（= top）传给父类。
+	 * <b>历史踩坑</b>：本项目曾误判这个签名，导致每条记录行高 = 整个列表区域高度，
+	 * 一屏只能看到一条消息——这正是用户反馈的"一句话占用整个界面"的根因。本次修正：
+	 * 保留 top/bottom 语义方便 Screen 传入，内部换算成 height（= bottom - top）和
+	 * y（= top）传给父类。
 	 *
 	 * 1.21.8 起构造函数扩为 6 参数（重新加回 bottom），届时本类的换算可简化，但当前
 	 * 1.21.1 必须按 5 参数签名传。
@@ -192,30 +158,32 @@ public class ChatHistoryScreen extends Screen {
 	}
 
 	/**
-	 * 列表条目基类：组标题行（{@link GroupHeaderWidget}）与消息行（{@link HistoryEntryWidget}）
+	 * 列表条目基类：分组大标题（{@link GroupTitleWidget}）、系统提示行
+	 * （{@link SystemEventWidget}）、消息行（{@link HistoryEntryWidget}）
 	 * 共同实现，以便统一加入同一个 {@link HistoryListWidget}。1.21.1 的
-	 * {@code EntryListWidget} 的 itemHeight 是列表级统一的（不支持每条目自定义高度，
-	 * 那是 1.21.8 才引入的能力），所以组标题行与消息行共用 {@link #ITEM_HEIGHT}，
-	 * 组标题靠背景条 + 颜色区分而非高度。
+	 * {@code EntryListWidget} 的 itemHeight 是列表级统一的（不支持每条目自定义
+	 * 高度，那是 1.21.8 才引入的能力），所以三种行都共用 {@link #ITEM_HEIGHT}，
+	 * 靠背景色/文字颜色/字体样式区分而非高度。
 	 */
 	private abstract static class HistoryListEntry extends AlwaysSelectedEntryListWidget.Entry<HistoryListEntry> {
 	}
 
 	/**
-	 * 对话组标题行：显示该组参与者。多人参与显示"A、B、C 的对话"（绿色 + 浅绿背景），
-	 * 单人连续发言显示"X 的自言自语"（灰色 + 浅灰背景）；右侧对齐组内最新消息时间。
+	 * 对话分组大标题：列出这个 Conversation 里出现过的所有参与者显示名
+	 * （"LimAimo、test、Alex 的对话"）。数据来自服务端下发的权威名单
+	 * （{@code ConversationRosterManager}），不是客户端自己猜测——应用户
+	 * 明确要求"复用服务端的对话分组逻辑"。
 	 *
-	 * "自言自语"的判定依据是组内不同说话者数量 == 1——不区分这人是不是玩家自己，
-	 * 因为无论是别人独自刷屏还是玩家自己连续发言，对"回看"而言都是"没有交流对象
-	 * 的独白"，归为一类更直观。
+	 * 无归属消息（CLIENT_ONLY，conversationId 为 null）时，participantNames
+	 * 是空列表，标题退化为显示该组唯一一条消息的说话者名（如果有）或者一个
+	 * 通用占位符——这类消息本来就没有"对话"概念，标题只是给它一个视觉锚点，
+	 * 不代表真的有服务端认可的对话分组。
 	 */
-	private static class GroupHeaderWidget extends HistoryListEntry {
-		private final LinkedHashSet<String> participants;
-		private final long latestTimestampMillis;
+	private static class GroupTitleWidget extends HistoryListEntry {
+		private final ChatHistoryManager.ConversationGroup group;
 
-		GroupHeaderWidget(LinkedHashSet<String> participants, long latestTimestampMillis) {
-			this.participants = participants;
-			this.latestTimestampMillis = latestTimestampMillis;
+		GroupTitleWidget(ChatHistoryManager.ConversationGroup group) {
+			this.group = group;
 		}
 
 		@Override
@@ -224,11 +192,28 @@ public class ChatHistoryScreen extends Screen {
 		}
 
 		private String buildTitle() {
-			if (participants.size() <= 1) {
-				String name = participants.isEmpty() ? "?" : participants.iterator().next();
-				return name + " 的自言自语";
+			if (group.conversationId() == null) {
+				// 无归属消息：退化显示这条消息本身的说话者名，没有"对话"的概念。
+				if (!group.items().isEmpty() && group.items().get(0) instanceof ChatTimelineItem.Message m) {
+					String name = m.entry().speakerName();
+					return (name == null || name.isBlank()) ? "?" : name;
+				}
+				return "?";
 			}
-			return String.join("、", participants) + " 的对话";
+			if (group.participantNames().isEmpty()) {
+				// 理论上不会发生（有 conversationId 就说明收到过至少一次
+				// ConversationRosterPayload），防御性兜底。
+				return Text.translatable("mccf.history.unknown_conversation").getString();
+			}
+			// 用带 %s 占位符的完整句子模板（而不是代码里拼接"名字+固定后缀"），
+			// 让每种语言自己决定名字该放在句子的哪个位置、用什么措辞——比如
+			// 英语是 "%s's conversation"（所有格后缀），中文是 "%s的对话"
+			// （前缀），俄语则是完全不同的语序 "Разговор: %s"。如果代码里
+			// 假设"名字永远在前、后面拼一个固定后缀"，会强迫所有语言迁就
+			// 同一种语序，容易翻译出不自然的句子。
+			String names = String.join(
+					Text.translatable("mccf.history.name_separator").getString(), group.participantNames());
+			return Text.translatable("mccf.history.conversation_title", names).getString();
 		}
 
 		@Override
@@ -236,30 +221,64 @@ public class ChatHistoryScreen extends Screen {
 				int mouseX, int mouseY, boolean hovered, float delta) {
 			var textRenderer = MinecraftClient.getInstance().textRenderer;
 			String title = buildTitle();
-			// 单人独白=灰色，多人对话=绿色——与消息行 SELF 绿色呼应，让"有交流"更显眼。
-			boolean isMonologue = participants.size() <= 1;
-			int textColor = isMonologue ? 0xAAAAAA : 0x55FF55;
-			// 浅色背景条把组标题与消息行视觉分开；独白用更暗的背景进一步弱化。
-			int bg = isMonologue ? 0x22AAAAAA : 0x2255AA55;
-			context.fill(x, y, x + entryWidth, y + entryHeight, bg);
+			// 浅绿背景条把大标题与下面的内容行视觉分开，比系统提示/消息行都更醒目
+			// （大标题是分组的视觉锚点，应该一眼能找到）。
+			context.fill(x, y, x + entryWidth, y + entryHeight, 0x3355AA55);
 
 			int textY = y + Math.max(0, (entryHeight - textRenderer.fontHeight) / 2);
-			context.drawTextWithShadow(textRenderer, title, x + 4, textY, textColor);
-
-			// 右侧组内最新消息时间，让玩家不用展开组就知道这段对话发生在大约何时。
-			String timeStr = TIME_FORMAT.format(Instant.ofEpochMilli(latestTimestampMillis));
-			int timeWidth = textRenderer.getWidth(timeStr);
-			context.drawTextWithShadow(textRenderer, timeStr, x + entryWidth - timeWidth - 4, textY, Colors.LIGHT_GRAY);
+			String trimmed = textRenderer.trimToWidth(title, entryWidth - 8);
+			context.drawTextWithShadow(textRenderer, trimmed, x + 4, textY, 0x55FF55);
 		}
 	}
 
 	/**
-	 * 单条历史消息条目。单行渲染："[来源] 说话者: 原文（⇄ 译文）"，右侧对齐时间戳。
+	 * 系统提示行："开始了一段新对话" / "XX 加入了对话"。灰色斜体风格，与真实
+	 * 聊天消息（白色/绿色等）区分开，一眼看出这不是有人说的话，而是对话状态
+	 * 本身的变化。
+	 */
+	private static class SystemEventWidget extends HistoryListEntry {
+		private final ChatHistorySystemEvent event;
+
+		SystemEventWidget(ChatHistorySystemEvent event) {
+			this.event = event;
+		}
+
+		@Override
+		public Text getNarration() {
+			return buildText();
+		}
+
+		private Text buildText() {
+			if (event.type() == ChatHistorySystemEvent.Type.CONVERSATION_STARTED) {
+				return Text.translatable("mccf.history.conversation_started");
+			}
+			String names = String.join(
+					Text.translatable("mccf.history.name_separator").getString(), event.involvedNames());
+			return Text.translatable("mccf.history.participant_joined", names);
+		}
+
+		@Override
+		public void render(DrawContext context, int index, int y, int x, int entryWidth, int entryHeight,
+				int mouseX, int mouseY, boolean hovered, float delta) {
+			var textRenderer = MinecraftClient.getInstance().textRenderer;
+			String text = buildText().getString();
+			int textY = y + Math.max(0, (entryHeight - textRenderer.fontHeight) / 2);
+			String trimmed = textRenderer.trimToWidth(text, entryWidth - 8);
+			// 居中显示——系统提示不是"谁说的话"，不需要像消息行那样左对齐配合
+			// "[来源] 说话者:" 前缀，居中更符合"这是一条旁白式提示"的视觉语言。
+			int textX = x + Math.max(0, (entryWidth - textRenderer.getWidth(trimmed)) / 2);
+			context.drawTextWithShadow(textRenderer, trimmed, textX, textY, Colors.GRAY);
+		}
+	}
+
+	/**
+	 * 单条历史消息条目。单行渲染："[来源] 说话者: 原文（⇄ 译文 [源语言→目标语言]）"，
+	 * 右侧对齐时间戳。
 	 *
-	 * 组标题已经显示了"这段对话是谁和谁的"，但每条消息仍保留说话者名——因为同一组
-	 * 内多人交替发言时，需要知道每条具体是谁说的；来源标签（SELF/VISIBLE/AUDIBLE/
-	 * CLIENT_ONLY）也保留，它区分的是"我怎么收到这条消息的"（自己发的/近处看到/
-	 * 只听到/纯客户端翻译），与"谁和谁在聊"是正交的两个维度。
+	 * 语言标签（例如 "zh_cn→en_us"）只在 sourceLang/targetLang 都非空且两者不同
+	 * 时显示——相同语言之间没有发生真正的翻译，画一个语言标签没有意义（比如
+	 * SELF 来源的自己回显，sourceLang == targetLang，不显示标签）。语言代码直接
+	 * 显示原始格式（如 "zh_cn"），不做本地化名称转换。
 	 *
 	 * 不可点击、不可选中——这只是一个只读的展示列表，AlwaysSelectedEntryListWidget
 	 * 只是为了复用现成的滚动条实现，选中态在这里没有实际意义。
@@ -302,15 +321,22 @@ public class ChatHistoryScreen extends Screen {
 					? "?" : entry.speakerName();
 
 			// itemHeight 是列表级统一的（12px），不支持每条目自定义高度（1.21.8 才引入），
-			// 所以每条记录只能画一行——把"[来源] 说话者：原文（⇄ 译文）"拼成一行，右侧留
-			// 时间戳，超宽时裁剪加省略号。为兼顾信息密度，优先保证时间戳和说话者可见，
-			// 正文内容允许被截断（历史记录本来就是"回溯个大概"，不是完整对照阅读工具）。
+			// 所以每条记录只能画一行——把"[来源] 说话者：原文（⇄ 译文 [语言标签]）"拼成
+			// 一行，右侧留时间戳，超宽时裁剪加省略号。为兼顾信息密度，优先保证时间戳和
+			// 说话者可见，正文内容允许被截断（历史记录本来就是"回溯个大概"，不是完整
+			// 对照阅读工具）。
 			String message = entry.originalText();
 			boolean hasTranslation = entry.translatedText() != null
 					&& !entry.translatedText().isBlank()
 					&& !entry.translatedText().equals(entry.originalText());
 			if (hasTranslation) {
 				message = message + " ⇄ " + entry.translatedText();
+
+				boolean hasLangLabel = entry.sourceLang() != null && entry.targetLang() != null
+						&& !entry.sourceLang().equals(entry.targetLang());
+				if (hasLangLabel) {
+					message = message + " [" + entry.sourceLang() + "→" + entry.targetLang() + "]";
+				}
 			}
 
 			String timeStr = TIME_FORMAT.format(Instant.ofEpochMilli(entry.timestampMillis()));

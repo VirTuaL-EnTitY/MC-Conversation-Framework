@@ -19,6 +19,18 @@ import java.util.UUID;
  * @param translatedText 译文（与原文相同语言时可能等于原文）
  * @param source         消息来源分类
  * @param timestampMillis 接收时刻（System.currentTimeMillis()），历史界面按时间倒序展示
+ * @param conversationId 服务端 Conversation id——SELF/VISIBLE/AUDIBLE 三类来源都有
+ *                       （服务端总会给说话者归组，见 SpatialChatHandler 的顺序调整），
+ *                       CLIENT_ONLY 恒为 null（纯客户端模式没有服务端 Conversation
+ *                       概念，见类文档）。历史界面按这个字段把消息分组展示成
+ *                       "XX、YY、ZZ 的对话"这样的对话块；null 时该条消息单独展示，
+ *                       不参与任何分组。
+ * @param sourceLang     说话者的语言代码，CLIENT_ONLY 恒为 null（那条路径不追踪
+ *                       语言代码，只有译文文本，见 ClientOnlyChatTranslator）。
+ * @param targetLang     接收者（也就是本地玩家）看到的目标语言代码，CLIENT_ONLY
+ *                       恒为 null，理由同上。sourceLang 与 targetLang 相同时
+ *                       （或任一为 null）历史界面不显示语言标签——相同语言之间
+ *                       没有发生真正的翻译，画一个"中文→中文"的箭头没有意义。
  */
 public record ChatHistoryEntry(
 		UUID speakerId,
@@ -26,7 +38,10 @@ public record ChatHistoryEntry(
 		String originalText,
 		String translatedText,
 		Source source,
-		long timestampMillis
+		long timestampMillis,
+		UUID conversationId,
+		String sourceLang,
+		String targetLang
 ) {
 	public enum Source {
 		SELF, VISIBLE, AUDIBLE, CLIENT_ONLY

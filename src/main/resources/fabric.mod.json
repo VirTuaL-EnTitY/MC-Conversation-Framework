@@ -5,10 +5,12 @@
 	"name": "MC Conversation Framework",
 	"description": "沉浸式多人交流基础设施：空间化字幕、动态对话上下文、可插拔翻译 Provider。让不同语言的玩家在同一服务器自然交流，同时保持信息只流向真正能接收到它的人。",
 	"authors": [
-		"You"
+		"LimAimo"
 	],
 	"contact": {
-		"homepage": "https://example.com"
+		"homepage": "https://github.com/VirTuaL-EnTitY/MC-Conversation-Framework-1.21.1",
+		"issues": "https://github.com/VirTuaL-EnTitY/MC-Conversation-Framework-1.21.1/issues",
+		"sources": "https://github.com/VirTuaL-EnTitY/MC-Conversation-Framework-1.21.1"
 	},
 	"license": "MIT",
 	"icon": "assets/mccf/icon.png",

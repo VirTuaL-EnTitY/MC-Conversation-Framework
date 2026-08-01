@@ -83,7 +83,7 @@ public final class ClientOnlyChatTranslator {
 							client.player.getUuid(), client.player.getGameProfile().getName(),
 							sourceText, sourceText,
 							net.mccf.mod.client.history.ChatHistoryEntry.Source.SELF,
-							System.currentTimeMillis()));
+							System.currentTimeMillis(), null, null, null));
 			return;
 		}
 
@@ -112,7 +112,7 @@ public final class ClientOnlyChatTranslator {
 							senderUuid != null ? java.util.UUID.fromString(senderUuid) : new java.util.UUID(0, 0),
 							"", sourceText, translated,
 							net.mccf.mod.client.history.ChatHistoryEntry.Source.CLIENT_ONLY,
-							System.currentTimeMillis()));
+							System.currentTimeMillis(), null, null, null));
 		})).exceptionally(ex -> {
 			// 纯客户端模式下翻译失败（比如没配 API Key）只记日志，不刷屏聊天栏——
 			// 玩家可以用配置界面的"导出日志"按钮排查，不需要每条消息都弹一次错误。

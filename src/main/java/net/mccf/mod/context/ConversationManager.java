@@ -47,6 +47,19 @@ public class ConversationManager {
 	}
 
 	/**
+	 * recordUtterance 的返回结果：处理后的 Conversation + 这次调用真正新增的
+	 * 参与者集合（可能为空——如果 speaker 和 audience 里的人此前就已经全部
+	 * 在这个 Conversation 里，比如同一批人持续对话中）。
+	 *
+	 * newlyJoined 存在的意义：调用方（SpatialChatHandler）需要判断"这次是否
+	 * 有新人加入了这个 Conversation"，只有真的有变化时才广播
+	 * {@code ConversationRosterPayload} 给客户端更新聊天历史记录里的对话
+	 * 成员名单，避免每次发言都无条件广播（浪费带宽，应用户明确要求只在
+	 * 真正变化时才发）。
+	 */
+	public record UtteranceResult(Conversation conversation, Set<UUID> newlyJoined) {}
+
+	/**
 	 * 记录一次"发言事件"：speaker 对 audience（当前范围内能听到的玩家集合）说了一句话。
 	 * 这是驱动 Conversation 合并/拆分的唯一入口。
 	 *
@@ -58,9 +71,9 @@ public class ConversationManager {
 	 * 4. 不在 audience 范围内、但仍属于旧 Conversation 的玩家不受影响——
 	 *    他们是否掉线/离开该组，交由后续的距离重算或超时机制处理。
 	 *
-	 * @return 处理后的 Conversation，供调用方记录消息内容 / 分发字幕
+	 * @return 处理后的 Conversation + 这次真正新增的参与者集合，见 {@link UtteranceResult}
 	 */
-	public Conversation recordUtterance(UUID speakerId, Set<UUID> audience, long currentTick) {
+	public UtteranceResult recordUtterance(UUID speakerId, Set<UUID> audience, long currentTick) {
 		List<Conversation> involved = new ArrayList<>();
 		collectConversation(speakerId, involved);
 		for (UUID listenerId : audience) {
@@ -81,14 +94,25 @@ public class ConversationManager {
 			}
 		}
 
-		target.addParticipant(speakerId);
+		// 收集这次调用真正新增的参与者——Set.add() 的返回值本身就是"是否真的
+		// 插入了新元素"的权威判断，不需要额外维护"调用前的快照"再做比较。
+		// mergeInto 内部合并旧 Conversation 成员时产生的新增不计入这里
+		// （那些人本来就已经在各自的旧 Conversation 里，只是被合并到 target，
+		// 对他们自己而言"参与者名单"没有变化，只有真正是这次 speaker/audience
+		// 里、此前完全不在任何相关 Conversation 里的人才算"新加入"）。
+		Set<UUID> newlyJoined = new java.util.LinkedHashSet<>();
+		if (target.addParticipant(speakerId)) {
+			newlyJoined.add(speakerId);
+		}
 		playerToConversation.put(speakerId, target.getId());
 		for (UUID listenerId : audience) {
-			target.addParticipant(listenerId);
+			if (target.addParticipant(listenerId)) {
+				newlyJoined.add(listenerId);
+			}
 			playerToConversation.put(listenerId, target.getId());
 		}
 
-		return target;
+		return new UtteranceResult(target, newlyJoined);
 	}
 
 	private void collectConversation(UUID playerId, List<Conversation> out) {
