@@ -1,4 +1,4 @@
-# MC Conversation Framework (MCCF)
+# MC Conversation Framework
 
 简体中文（[中文 README](README.md)） | **English (current)**
 
@@ -90,7 +90,7 @@ in-person talking:
   subtitles was removed in later 1.21.x releases, with no stable
   replacement yet).
 
-## Want the full technical details?
+## Want the full technical details? 
 
 This page is intentionally kept short and player-focused. For the complete
 technical documentation — architecture, build instructions, configuration

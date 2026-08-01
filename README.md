@@ -1,4 +1,4 @@
-# MC Conversation Framework (MCCF)
+# MC Conversation Framework
 
 **[English README](README_EN.md)** | 简体中文（当前）
 
