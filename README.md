@@ -383,6 +383,102 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-07-30　0.15.0 新增：五家 Provider 独立"强制关闭思考"开关 + 新增智谱 AI Provider
+
+响应用户要求：DeepSeek 这类带思考功能的模型默认会先"想一遍"再给出译文，
+拖慢翻译速度、浪费 token；新增一个可以强制关闭思考的开关。实现前对
+DeepSeek、Kimi、Claude、Gemini 逐一做了调研（联网核实各家官方文档），
+发现每家的支持情况、参数名、模型代次限制都不一样，最终方案和调研结论
+如下。
+
+**1. 调研结论（各家"思考模式"现状，2026-08 核实）**
+- **DeepSeek**：V4 系列（默认 `deepseek-v4-flash`/`deepseek-v4-pro`，
+  官方已在 2026-07-24 停用旧的 `deepseek-chat`/`deepseek-reasoner`）默认
+  开启思考，支持 `"thinking":{"type":"disabled"}` 关闭。
+- **Kimi**：默认模型 `kimi-k2.5`（K2.x 系列）默认开思考、支持同样的
+  `thinking:{type:disabled}` 参数关闭；但 **K3 系列官方文档明确写
+  "Reasoning is always on. There is no non-thinking mode."**——如果玩家
+  把模型手动改成 K3，这个开关传参不会报错但也不会生效。
+- **Claude**：默认模型 `claude-sonnet-4-6` 支持旧版
+  `thinking:{type:"disabled"}` 参数（"extended thinking is deprecated on
+  the Claude 4.6 models, requests using it still succeed"）；但 **Claude
+  4.7 及更新模型不再支持这个参数结构，会返回 400 错误**，新模型改用
+  `effort` 参数控制思考强度，无法简单"禁用"。
+- **Gemini**：默认模型 `gemini-3.5-flash` 支持
+  `generationConfig.thinkingConfig.thinkingBudget:0` 关闭思考；但 **Gemini
+  2.5 Pro / Gemini 3 Pro 官方文档明确写思考无法关闭**（"Thinking can't be
+  turned off"）。
+- **智谱 GLM**：GLM-5/GLM-5.2 官方示例代码确认支持
+  `thinking:{type:"disabled"}`（与 DeepSeek/Kimi 同款参数结构）。
+- **没有任何一家的 `listModels()` 接口会返回"这个模型是否支持关闭思考"
+  这个信息**——因此无法用联网查询自动判断某个具体模型是否真的支持，
+  只能在打开开关时给出通用警告，交给玩家自己验证（见下方第 3 点）。
+- OpenAI 默认模型 `gpt-4o-mini` 不是推理模型，本身没有"思考"概念，不在
+  这次的处理范围内。
+
+**2. 每个 Provider 独立一个开关（而非全局一个）**
+- `ProviderConfig`（服务端）/ `ClientProviderConfig`（客户端）新增
+  `disableThinking` 字段，随其他 Provider 配置项一起保存/同步——应用户
+  明确要求"只想关 DeepSeek 的思考，不想关 Kimi 的"这类精细控制，不是
+  全局一个开关影响所有 Provider。
+- `ChatCompletionsSupport.buildRequestBody` 新增带 `disableThinking`
+  参数的重载，DeepSeek/Kimi/智谱（三家共用 OpenAI 兼容格式）复用这个
+  方法；Claude（Messages API）、Gemini（generateContent API）各自的
+  `buildRequestBody` 也分别加了对应的参数注入逻辑（结构不同，不能复用
+  同一份代码）。
+- `ServerConfigPanel`/`LocalConfigPanel` 新增
+  `THINKING_CAPABLE_PROVIDERS` 判断——只有 DeepSeek/Kimi/Claude/Gemini/
+  智谱这五家在配置界面里会显示"强制关闭思考"这个开关，其余 Provider
+  （OpenAI、DeepL、Ollama、Mock）不显示，避免展示一个没有意义的选项。
+
+**3.（交互）打开开关时弹出确认警告，关闭直接生效**
+- 开关默认关闭、可自由打开（不是"灰色禁用"）——应用户最终确认的方案。
+- 打开（false → true）时用 `ConfirmScreen` 弹出警告：说明部分新一代
+  模型可能不支持强制关闭思考、可能导致该 Provider 的翻译请求完全失败，
+  同时说明关闭思考的好处（翻译更快、更省 token）；玩家取消则按钮显示值
+  还原为"关"，不实际生效。关闭（true → false）不需要确认，直接生效——
+  关掉一个"可能有风险的设置"永远是安全操作。
+- 服务端配置面板（`ServerConfigPanel`）和纯客户端面板
+  （`LocalConfigPanel`）各自独立实现这个交互（前者改动经
+  `UpdateConfigPayload` 提交给服务端持久化，后者直接改本地
+  `ClientProviderConfig` 对象、点"保存"时随其他字段一起落盘），警告
+  弹窗文案共用同一组翻译键。
+- `ClientOnlyTranslationConfig#copyPublicFieldsFrom`（"从服务器同步"
+  按钮的实现）新增 `disableThinking` 字段的拷贝——这个偏好属于"配置
+  偏好"而非"敏感信息"（不像 apiKey 那样故意不同步），跟随
+  model/endpoint 一起同步是合理的。
+
+**4. 新增智谱 AI（Zhipu AI / Z.ai）Provider**
+- 新增 `ZhipuTranslationProvider`，OpenAI Chat Completions 兼容接口，
+  与 `KimiTranslationProvider`/`DeepSeekTranslationProvider` 结构一致。
+  默认 endpoint `https://open.bigmodel.cn/api/paas/v4`，默认模型
+  `glm-5.2`（当前最新旗舰，应用户明确指定）。
+- 注册进 `ProviderFactory`、`ProviderDefaults`、客户端
+  `ClientConfigState.PROVIDER_IDS`（"zhipu" 插入在 "deepseek" 和
+  "ollama" 之间）。新增 `mccf.provider.zhipu` / 
+  `mccf.config.provider_hint.zhipu` 翻译键，9 种语言均已补全。
+
+**5. 本地化**
+- 新增 3 个翻译键（`mccf.config.disable_thinking`、
+  `mccf.config.disable_thinking_warning_title`、
+  `mccf.config.disable_thinking_warning_body`）+ 智谱相关 2 个键，
+  合计 5 个新键 × 9 种语言均已补全。警告正文措辞经过仔细考量：
+  同时说明好处（更快更省）和风险（部分模型可能拒绝请求），不是单纯的
+  恐吓式警告。
+
+**已知限制（如实记录，不回避）**：
+- 判断"某个具体模型是否支持关闭思考"完全依赖玩家自己验证——没有任何
+  官方 API 提供这个信息，配置界面无法做到"选了不支持的模型就自动置灰
+  开关"这种智能提示，这是当前 AI 服务商生态的普遍限制，不是这个模组
+  能绕过的技术问题。
+- 参数名和支持范围可能随各家 API 版本更新而变化（本次调研截止
+  2026-08-01），如果日后某家调整了参数结构，需要重新调研并更新对应
+  Provider 实现类。
+
+版本号 `0.14.0` → `0.15.0`（按 9.1 规则升 minor：新增功能，非破坏性——
+不改动现有网络协议字段，仅新增，旧客户端/服务端仍可正常通信，只是新字段
+会被忽略）。
+
 ### 2026-07-30　0.14.0 新增：聊天历史记录支持筛选与排序
 
 聊天历史记录界面新增筛选和排序功能，应用户要求"再加一个聊天筛选以及更改

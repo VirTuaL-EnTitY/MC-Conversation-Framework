@@ -17,7 +17,7 @@ import java.util.Map;
 public class ClientConfigState {
 
 	public static final String[] PROVIDER_IDS = {
-			"mock", "openai", "claude", "gemini", "deepl", "kimi", "deepseek", "ollama"
+			"mock", "openai", "claude", "gemini", "deepl", "kimi", "deepseek", "zhipu", "ollama"
 	};
 
 	/** 生成某个 Provider 在语言文件里对应的翻译 key，例如 "openai" -> "mccf.provider.openai"。 */
@@ -27,6 +27,21 @@ public class ClientConfigState {
 
 	/** 不支持"一键获取模型"的 Provider（DeepL 是固定引擎无模型概念，Mock 无真实模型）。 */
 	public static final java.util.Set<String> NO_MODEL_LIST_SUPPORT = java.util.Set.of("mock", "deepl");
+
+	/**
+	 * 支持"强制关闭思考"的 Provider——DeepSeek（V4 系列默认开思考）、
+	 * Kimi（K2.x 系列默认开思考）、Claude（4.6 及更早支持关闭参数）、
+	 * Gemini（flash 系列支持 thinkingBudget=0）、智谱（GLM-5/5.2 默认开思考）。
+	 * 其余 Provider（OpenAI 默认模型 gpt-4o-mini 不是推理模型、DeepL 是固定
+	 * 翻译引擎、Ollama 本地模型看具体模型、Mock 是占位符）没有统一的"思考"
+	 * 概念，配置界面不会为它们展示这个开关。
+	 *
+	 * 只对确认支持这个能力的 Provider 生效，具体每家用什么参数关闭、参数是否
+	 * 对所有模型代次都有效，见各自 TranslationProvider 实现类的注释——这些
+	 * 限制不由这里的集合本身表达，而是通过打开开关时的确认弹窗告知玩家。
+	 */
+	public static final java.util.Set<String> THINKING_CAPABLE_PROVIDERS =
+			java.util.Set.of("deepseek", "kimi", "claude", "gemini", "zhipu");
 
 	private static final Gson GSON = new GsonBuilder().create();
 
@@ -134,6 +149,7 @@ public class ClientConfigState {
 			JsonObject pcJson = new JsonObject();
 			pcJson.addProperty("apiKey", pc.apiKey == null ? "" : pc.apiKey);
 			pcJson.addProperty("model", pc.model == null ? "" : pc.model);
+			pcJson.addProperty("disableThinking", pc.disableThinking);
 
 			// endpoint 三态：根据玩家在 UI 上的显式意图决定发什么给服务端，
 			// 而不是从输入框文本反推。endpointAction 是 transient 字段，

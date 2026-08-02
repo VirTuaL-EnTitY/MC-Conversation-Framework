@@ -16,6 +16,15 @@ import java.util.concurrent.CompletableFuture;
  *
  * 与 OpenAI/Claude 不同，Gemini 没有独立的 system 角色字段（Contents API
  * 里没有 "system"），因此把系统提示词和用户文本拼在同一个 user part 里。
+ *
+ * 思考控制：默认模型 gemini-3.5-flash 支持通过
+ * {@code generationConfig.thinkingConfig.thinkingBudget: 0} 关闭思考——这是
+ * Gemini 2.5/3.5 flash 系列沿用的旧参数名（官方 SDK 示例代码确认
+ * gemini-3.5-flash 依然接受这个参数，不是新一代的 thinking_level）。
+ * **重要限制**：官方文档明确写"Thinking can't be turned off for Gemini
+ * 2.5 Pro"，Gemini 3 Pro 同样"thinking cannot be disabled"——如果玩家把
+ * 模型手动改成任何 *-pro 型号，这个参数不会报错，但思考也不会真正关闭，
+ * 这是 Google API 本身的限制，不是这个开关失效。
  */
 public class GeminiTranslationProvider implements TranslationProvider {
 
@@ -49,7 +58,7 @@ public class GeminiTranslationProvider implements TranslationProvider {
 
 		String systemPrompt = ChatCompletionsSupport.buildSystemPrompt(request);
 		String combinedPrompt = systemPrompt + "\n\nText to translate:\n" + request.sourceText();
-		String body = buildRequestBody(combinedPrompt);
+		String body = buildRequestBody(combinedPrompt, config.disableThinking);
 
 		return HttpProviderSupport.postJson(endpoint, body, Map.of(
 				"x-goog-api-key", config.apiKey,
@@ -88,9 +97,13 @@ public class GeminiTranslationProvider implements TranslationProvider {
 		return ids;
 	}
 
-	private static String buildRequestBody(String promptText) {
+	private static String buildRequestBody(String promptText, boolean disableThinking) {
+		String thinkingField = disableThinking
+				? ",\"generationConfig\":{\"thinkingConfig\":{\"thinkingBudget\":0}}"
+				: "";
 		return "{"
 				+ "\"contents\":[{\"parts\":[{\"text\":\"" + HttpProviderSupport.escapeJson(promptText) + "\"}]}]"
+				+ thinkingField
 				+ "}";
 	}
 

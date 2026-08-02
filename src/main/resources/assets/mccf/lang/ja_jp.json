@@ -13,6 +13,9 @@
   "mccf.config.clear_api_key": "キーをクリア",
   "mccf.config.client_only_settings": "クライアント専用ローカル翻訳設定",
   "mccf.config.close": "閉じる",
+  "mccf.config.disable_thinking": "思考モードを強制的に無効化",
+  "mccf.config.disable_thinking_warning_body": "有効にすると、翻訳が速くなりコストも下がります（実際の回答前の内部推論を省略するため）。ただし、すべてのモデルが思考モードの強制無効化に対応しているわけではなく、一部の新しいモデルではこのパラメータ付きリクエストが拒否され、翻訳自体が動作しなくなる場合があります。有効化後に翻訳が動かなくなった場合は、まずこの設定をオフに戻してみてください。",
+  "mccf.config.disable_thinking_warning_title": "思考モードを強制的に無効化しますか？",
   "mccf.config.endpoint": "APIエンドポイント",
   "mccf.config.endpoint.placeholder": "デフォルトエンドポイント（空欄で可）",
   "mccf.config.endpoint_reset": "エンドポイントをリセットしました（保存時にデフォルトを使用）。",
@@ -39,6 +42,7 @@
   "mccf.config.provider_hint.mock": "デバッグ用、設定不要。",
   "mccf.config.provider_hint.ollama": "ローカル実行、APIキー不要。",
   "mccf.config.provider_hint.openai": "APIキー必須、コンテキスト対応。",
+  "mccf.config.provider_hint.zhipu": "API Key が必要です。OpenAI 互換。",
   "mccf.config.reset_endpoint": "エンドポイントをリセット",
   "mccf.config.retry": "再試行",
   "mccf.config.save": "保存",
@@ -95,5 +99,6 @@
   "mccf.provider.mock": "モック（デバッグ用）",
   "mccf.provider.ollama": "Ollama（ローカル）",
   "mccf.provider.openai": "OpenAI",
+  "mccf.provider.zhipu": "Zhipu AI（GLM）",
   "mccf.tip.first_join": "[MCCF] MC Conversation Framework の準備ができました。設定 → 操作 → キーバインド で MCCF のキーを割り当てて設定画面を開けるようにしてください。"
 }

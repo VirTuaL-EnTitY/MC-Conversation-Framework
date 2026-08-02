@@ -13,6 +13,9 @@
   "mccf.config.clear_api_key": "Effacer la clé",
   "mccf.config.client_only_settings": "Réglages de traduction locale en mode client uniquement",
   "mccf.config.close": "Fermer",
+  "mccf.config.disable_thinking": "Désactiver de force le mode réflexion",
+  "mccf.config.disable_thinking_warning_body": "Activer ceci rend les traductions plus rapides et moins coûteuses (moins de jetons dépensés en raisonnement interne avant la réponse). Cependant, tous les modèles ne prennent pas en charge la désactivation forcée du mode réflexion -- certaines versions plus récentes peuvent carrément rejeter la requête si cette option est activée, ce qui casserait la traduction pour ce fournisseur. Si les traductions cessent de fonctionner après activation, essayez d'abord de la désactiver.",
+  "mccf.config.disable_thinking_warning_title": "Désactiver de force le mode réflexion ?",
   "mccf.config.endpoint": "Endpoint API",
   "mccf.config.endpoint.placeholder": "Endpoint par défaut (laisser vide)",
   "mccf.config.endpoint_reset": "Endpoint réinitialisé (l'endpoint par défaut sera utilisé lors de l'enregistrement).",
@@ -39,6 +42,7 @@
   "mccf.config.provider_hint.mock": "Débogage uniquement. Aucune configuration requise.",
   "mccf.config.provider_hint.ollama": "Déploiement local. Aucune clé API requise.",
   "mccf.config.provider_hint.openai": "Requiert une clé API. Prend en charge le contexte.",
+  "mccf.config.provider_hint.zhipu": "Clé API requise. Compatible OpenAI.",
   "mccf.config.reset_endpoint": "Réinitialiser l'endpoint",
   "mccf.config.retry": "Réessayer",
   "mccf.config.save": "Enregistrer",
@@ -95,5 +99,6 @@
   "mccf.provider.mock": "Simulé (débogage)",
   "mccf.provider.ollama": "Ollama (local)",
   "mccf.provider.openai": "OpenAI",
+  "mccf.provider.zhipu": "Zhipu AI (GLM)",
   "mccf.tip.first_join": "[MCCF] MC Conversation Framework est prêt. Allez dans Réglages → Contrôles → Assignation des touches pour assigner une touche à MCCF et ouvrir l'écran de configuration."
 }

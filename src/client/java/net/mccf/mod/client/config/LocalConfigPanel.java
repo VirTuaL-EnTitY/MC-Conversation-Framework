@@ -46,6 +46,8 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 	private ButtonWidget saveButton;
 	private ButtonWidget clearApiKeyButton;
 	private ButtonWidget fetchModelsButton;
+	/** "强制关闭思考"开关，只在 selectedProvider 支持思考控制时可见，见 ServerConfigPanel 同名字段注释。 */
+	private CyclingButtonWidget<Boolean> disableThinkingButton;
 
 	private Text statusMessage = Text.empty();
 	private int statusColor = Colors.YELLOW;
@@ -71,9 +73,9 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 	protected void buildRightPanel(int panelLeft, int panelTop, int panelRight, int panelBottom) {
 		int panelWidth = panelRight - panelLeft;
 		int fieldHeight = 20;
-		// 动态间距：6 行控件（高 20）+ 5 个间距——比原来少了"设为本地默认"这一行，
-		// 分母从 6 改成 5。
-		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 120) / 5));
+		// 动态间距：7 行控件（高 20）+ 6 个间距——比之前多了一行"强制关闭思考"
+		// 开关，分母从 5 改成 6。
+		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 140) / 6));
 		int y = panelTop;
 
 		ClientOnlyModeManager.Override initialMode =
@@ -110,6 +112,15 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 				Text.translatable("mccf.config.endpoint")));
 		endpointField.setMaxLength(256);
 		endpointField.setPlaceholder(Text.translatable("mccf.config.endpoint.placeholder"));
+		y += spacing;
+
+		// "强制关闭思考"开关：与 ServerConfigPanel 同款逻辑，见其注释。这里的
+		// disableThinking 存在 ClientProviderConfig（纯客户端模式，不经服务端）。
+		ClientProviderConfig initialPc = config.getOrCreate(selectedProvider);
+		disableThinkingButton = own(CyclingButtonWidget.onOffBuilder(initialPc.disableThinking)
+				.build(panelLeft, y, panelWidth, fieldHeight,
+						Text.translatable("mccf.config.disable_thinking"),
+						(button, value) -> onDisableThinkingToggled(button, value)));
 		y += spacing;
 
 		// "获取模型列表"按钮：纯客户端模式下不走服务端中转，客户端直接调 Provider 的
@@ -156,6 +167,7 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		boolean isMock = selectedProvider.equals("mock");
 		boolean isDeepL = selectedProvider.equals("deepl");
 		boolean supportsModelList = !ClientConfigState.NO_MODEL_LIST_SUPPORT.contains(selectedProvider);
+		boolean supportsThinking = ClientConfigState.THINKING_CAPABLE_PROVIDERS.contains(selectedProvider);
 
 		apiKeyField.active = tabVisible && !isMock;
 		endpointField.active = tabVisible && !isMock;
@@ -163,6 +175,11 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		clearApiKeyButton.active = tabVisible && !isMock;
 		if (fetchModelsButton != null) {
 			fetchModelsButton.active = tabVisible && supportsModelList;
+		}
+		if (disableThinkingButton != null) {
+			disableThinkingButton.visible = supportsThinking;
+			disableThinkingButton.active = tabVisible && supportsThinking;
+			disableThinkingButton.setValue(pc.disableThinking);
 		}
 	}
 
@@ -198,6 +215,33 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		refreshFieldsFromState();
 		statusMessage = Text.translatable("mccf.localconfig.sync_done");
 		statusColor = Colors.YELLOW;
+	}
+
+	/**
+	 * "强制关闭思考"开关的点击回调——纯客户端模式版本，逻辑与
+	 * {@link ServerConfigPanel#onDisableThinkingToggled} 一致（打开时弹确认
+	 * 警告，关闭直接生效），区别只是这里直接改本地 {@code ClientProviderConfig}
+	 * 对象，不涉及 UpdateConfigPayload 网络提交（纯客户端模式配置只影响
+	 * 玩家自己本地看到的翻译结果）。点"保存"（onSave/performSave）时才会
+	 * 调用 {@link ClientOnlyTranslationConfig#save()} 落盘。
+	 */
+	private void onDisableThinkingToggled(CyclingButtonWidget<Boolean> button, boolean newValue) {
+		if (!newValue) {
+			config.getOrCreate(selectedProvider).disableThinking = false;
+			return;
+		}
+
+		MinecraftClient.getInstance().setScreen(new ConfirmScreen(
+				confirmed -> {
+					MinecraftClient.getInstance().setScreen(screen);
+					if (confirmed) {
+						config.getOrCreate(selectedProvider).disableThinking = true;
+					} else {
+						button.setValue(false);
+					}
+				},
+				Text.translatable("mccf.config.disable_thinking_warning_title"),
+				Text.translatable("mccf.config.disable_thinking_warning_body")));
 	}
 
 	/**

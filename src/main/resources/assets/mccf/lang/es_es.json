@@ -13,6 +13,9 @@
   "mccf.config.clear_api_key": "Borrar clave",
   "mccf.config.client_only_settings": "Ajustes de traducción local solo cliente",
   "mccf.config.close": "Cerrar",
+  "mccf.config.disable_thinking": "Forzar desactivación del pensamiento",
+  "mccf.config.disable_thinking_warning_body": "Activar esto hace que las traducciones sean más rápidas y económicas (menos tokens gastados en el razonamiento interno antes de la respuesta real). Sin embargo, no todos los modelos admiten la desactivación forzada del modo de pensamiento; algunas versiones más nuevas pueden rechazar por completo la solicitud si esto está activado, lo que rompería la traducción para ese proveedor. Si las traducciones dejan de funcionar después de activarlo, intenta desactivarlo de nuevo.",
+  "mccf.config.disable_thinking_warning_title": "¿Forzar la desactivación del modo de pensamiento?",
   "mccf.config.endpoint": "Endpoint API",
   "mccf.config.endpoint.placeholder": "Endpoint por defecto (dejar en blanco)",
   "mccf.config.endpoint_reset": "Endpoint restablecido (se usará el por defecto al guardar).",
@@ -39,6 +42,7 @@
   "mccf.config.provider_hint.mock": "Solo depuración. No requiere configuración.",
   "mccf.config.provider_hint.ollama": "Despliegue local. No necesita clave API.",
   "mccf.config.provider_hint.openai": "Requiere clave API. Soporta contexto.",
+  "mccf.config.provider_hint.zhipu": "Requiere clave de API. Compatible con OpenAI.",
   "mccf.config.reset_endpoint": "Restablecer endpoint",
   "mccf.config.retry": "Reintentar",
   "mccf.config.save": "Guardar",
@@ -95,5 +99,6 @@
   "mccf.provider.mock": "Simulado (depuración)",
   "mccf.provider.ollama": "Ollama (local)",
   "mccf.provider.openai": "OpenAI",
+  "mccf.provider.zhipu": "Zhipu AI (GLM)",
   "mccf.tip.first_join": "[MCCF] MC Conversation Framework está listo. Ve a Ajustes → Controles → Asignación de teclas para asignar una tecla a MCCF y abrir la pantalla de configuración."
 }

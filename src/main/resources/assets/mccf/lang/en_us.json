@@ -13,6 +13,9 @@
   "mccf.config.clear_api_key": "Clear Key",
   "mccf.config.client_only_settings": "Client-Only Local Translation Settings",
   "mccf.config.close": "Close",
+  "mccf.config.disable_thinking": "Force Disable Thinking",
+  "mccf.config.disable_thinking_warning_body": "Turning this on makes translations faster and cheaper (fewer tokens spent on internal reasoning before the actual answer). However, not every model supports being forced out of thinking mode -- some newer model versions may reject the request entirely if this is enabled, which would break translation for that provider. If translations stop working after turning this on, try turning it back off first.",
+  "mccf.config.disable_thinking_warning_title": "Force disable thinking mode?",
   "mccf.config.endpoint": "API Endpoint",
   "mccf.config.endpoint.placeholder": "Default endpoint (leave blank)",
   "mccf.config.endpoint_reset": "Endpoint reset (will use default on save).",
@@ -39,6 +42,7 @@
   "mccf.config.provider_hint.mock": "Debug only. No configuration needed.",
   "mccf.config.provider_hint.ollama": "Local deployment. No API Key needed.",
   "mccf.config.provider_hint.openai": "Requires API Key. Supports context.",
+  "mccf.config.provider_hint.zhipu": "Requires API Key. OpenAI-compatible.",
   "mccf.config.reset_endpoint": "Reset Endpoint",
   "mccf.config.retry": "Retry",
   "mccf.config.save": "Save",
@@ -95,5 +99,6 @@
   "mccf.provider.mock": "Mock (Debug)",
   "mccf.provider.ollama": "Ollama (Local)",
   "mccf.provider.openai": "OpenAI",
+  "mccf.provider.zhipu": "Zhipu AI (GLM)",
   "mccf.tip.first_join": "[MCCF] MC Conversation Framework is ready. Go to Settings → Controls → Key Binds to bind a key for MCCF to open the config screen."
 }

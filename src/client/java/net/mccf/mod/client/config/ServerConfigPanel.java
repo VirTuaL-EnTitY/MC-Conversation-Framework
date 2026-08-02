@@ -45,6 +45,14 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	private ButtonWidget retryButton;
 	private net.minecraft.client.gui.widget.CyclingButtonWidget<Boolean> showOriginalTextButton;
 	private net.minecraft.client.gui.widget.CyclingButtonWidget<Boolean> showOriginalTextInChatButton;
+	/**
+	 * "强制关闭思考"开关——只在 selectedProvider 属于
+	 * {@link ClientConfigState#THINKING_CAPABLE_PROVIDERS} 时可见（其余
+	 * Provider 没有"思考"概念，见该集合注释）。每个 Provider 各自独立存储
+	 * 在 {@code ClientProviderConfig#disableThinking} 里（应用户明确要求
+	 * "只想关 DeepSeek 的思考，不想关 Kimi 的"这类精细控制），不是全局开关。
+	 */
+	private net.minecraft.client.gui.widget.CyclingButtonWidget<Boolean> disableThinkingButton;
 
 	private Text statusMessage = Text.empty();
 	private int statusColor = Colors.YELLOW;
@@ -95,9 +103,10 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	protected void buildRightPanel(int panelLeft, int panelTop, int panelRight, int panelBottom) {
 		int panelWidth = panelRight - panelLeft;
 		int fieldHeight = 20;
-		// 动态间距：6 行控件（高 20）+ 5 个间距——比 0.10.0 那版多了一行"显示原文"
-		// 开关（两个 CyclingButtonWidget<Boolean> 并排），分母从 4 改成 5。
-		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 120) / 5));
+		// 动态间距：7 行控件（高 20）+ 6 个间距——比之前多了一行"强制关闭思考"
+		// 开关（只在支持思考的 Provider 时显示，见 refreshFieldsFromState），
+		// 分母从 5 改成 6。
+		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 140) / 6));
 		int y = panelTop;
 
 		int apiKeyFieldWidth = panelWidth - 44;
@@ -124,6 +133,19 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 				Text.translatable("mccf.config.endpoint")));
 		endpointField.setMaxLength(256);
 		endpointField.setPlaceholder(Text.translatable("mccf.config.endpoint.placeholder"));
+		y += spacing;
+
+		// "强制关闭思考"开关：只在 selectedProvider 支持思考控制时才有意义，
+		// 初始可见性/取值在 refreshFieldsFromState 里根据当前查看的 Provider
+		// 同步（这里先按当前 selectedProvider 构造，保证 buildRightPanel 首次
+		// 运行时状态就是对的，不用等第一次 refreshFieldsFromState 才更新）。
+		// 打开开关（false -> true）时会弹出确认警告，见 onDisableThinkingToggled——
+		// 应用户明确要求"警告屏幕"说明部分模型可能不支持、以及关闭思考的好处。
+		ClientProviderConfig initialPc = state.getOrCreate(selectedProvider);
+		disableThinkingButton = own(net.minecraft.client.gui.widget.CyclingButtonWidget.onOffBuilder(initialPc.disableThinking)
+				.build(panelLeft, y, panelWidth, fieldHeight,
+						Text.translatable("mccf.config.disable_thinking"),
+						(button, value) -> onDisableThinkingToggled(button, value)));
 		y += spacing;
 
 		// 两个"显示原文"开关，并排放一行——分别对应 AUDIBLE 字幕（物品栏上方）
@@ -194,6 +216,15 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		apiKeyField.setText(pc.apiKey == null ? "" : pc.apiKey);
 		modelField.setText(pc.model == null ? "" : pc.model);
 		endpointField.setText(pc.endpoint == null ? "" : pc.endpoint);
+
+		// "强制关闭思考"开关：只在当前查看的 Provider 支持这个能力时可见——
+		// 切换 Provider 时（而不只是收到快照时）也要同步，因为玩家在界面里
+		// 点左侧列表切换查看的 Provider 是最常见的触发这个刷新的方式。
+		if (disableThinkingButton != null) {
+			boolean supportsThinking = ClientConfigState.THINKING_CAPABLE_PROVIDERS.contains(selectedProvider);
+			disableThinkingButton.visible = supportsThinking;
+			disableThinkingButton.setValue(pc.disableThinking);
+		}
 	}
 
 	private void applyEditability() {
@@ -209,6 +240,10 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		saveButton.active = tabVisible && state.canEdit;
 		if (showOriginalTextButton != null) showOriginalTextButton.active = tabVisible && state.canEdit;
 		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.active = tabVisible && state.canEdit;
+		if (disableThinkingButton != null) {
+			disableThinkingButton.active = tabVisible && state.canEdit
+					&& ClientConfigState.THINKING_CAPABLE_PROVIDERS.contains(selectedProvider);
+		}
 
 		if (!state.canEdit) {
 			statusMessage = Text.translatable("mccf.config.no_permission");
@@ -293,6 +328,47 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		endpointField.setText("");
 		statusMessage = Text.translatable("mccf.config.endpoint_reset");
 		statusColor = Colors.YELLOW;
+	}
+
+	/**
+	 * "强制关闭思考"开关的点击回调。
+	 *
+	 * 打开（false -> true）时先弹出确认警告，说明部分新一代模型可能不支持
+	 * 这个设置（会导致翻译请求失败），同时说明关闭思考的好处（翻译更快、
+	 * 更省 token）——应用户明确要求"警告屏幕"。玩家点确认才真正把值写入
+	 * {@code ClientProviderConfig#disableThinking}；点取消则把按钮显示值
+	 * 还原回 false（避免按钮显示"开"但实际配置值还是"关"这种不一致）。
+	 *
+	 * 关闭（true -> false）不需要确认——关掉一个"可能有风险的设置"永远是
+	 * 安全的操作，不用像打开那样拦截一次。
+	 *
+	 * 没有联网/API 查询能判断"当前这个具体模型是否真的支持关闭思考"（调研
+	 * 过 DeepSeek/Kimi/Claude/Gemini/智谱，没有任何一家的 listModels 接口
+	 * 返回这个信息），所以警告是通用的、不针对具体模型名做智能判断——具体
+	 * 某个模型是否真的支持，需要玩家自己验证。
+	 */
+	private void onDisableThinkingToggled(net.minecraft.client.gui.widget.CyclingButtonWidget<Boolean> button, boolean newValue) {
+		if (!newValue) {
+			// 关闭：直接生效，不需要确认。
+			state.getOrCreate(selectedProvider).disableThinking = false;
+			return;
+		}
+
+		MinecraftClient.getInstance().setScreen(new net.minecraft.client.gui.screen.ConfirmScreen(
+				confirmed -> {
+					MinecraftClient.getInstance().setScreen(screen);
+					if (confirmed) {
+						state.getOrCreate(selectedProvider).disableThinking = true;
+					} else {
+						// 取消：CyclingButtonWidget 在触发回调前已经把自己的显示值切成了
+						// "开"，这里需要手动改回"关"，否则界面显示和实际配置值会不一致
+						// （玩家看到按钮显示"开"，但 ClientProviderConfig.disableThinking
+						// 其实还是 false，下次切换 Provider 再切回来时会露馅）。
+						button.setValue(false);
+					}
+				},
+				Text.translatable("mccf.config.disable_thinking_warning_title"),
+				Text.translatable("mccf.config.disable_thinking_warning_body")));
 	}
 
 	private void onClearApiKey() {

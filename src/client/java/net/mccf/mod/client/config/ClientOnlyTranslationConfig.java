@@ -73,6 +73,7 @@ public class ClientOnlyTranslationConfig {
 			local.model = source.model;
 			local.endpoint = source.endpoint;
 			local.isCustomEndpoint = source.isCustomEndpoint;
+			local.disableThinking = source.disableThinking;
 			// apiKey 故意不拷贝，见方法说明。
 		}
 	}

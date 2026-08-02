@@ -27,6 +27,7 @@ public final class ProviderFactory {
 			case DeepLTranslationProvider.ID -> new DeepLTranslationProvider(config);
 			case KimiTranslationProvider.ID -> new KimiTranslationProvider(config);
 			case DeepSeekTranslationProvider.ID -> new DeepSeekTranslationProvider(config);
+			case ZhipuTranslationProvider.ID -> new ZhipuTranslationProvider(config);
 			case OllamaTranslationProvider.ID -> new OllamaTranslationProvider(config);
 			// 未知 ID 仍然 fallback 到 Mock，保证服务器不崩——但必须 warn：
 			// 静默 fallback 会把"配置里打错了一个 provider id"这种错误掩盖成

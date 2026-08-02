@@ -13,6 +13,9 @@
   "mccf.config.clear_api_key": "清除密钥",
   "mccf.config.client_only_settings": "纯客户端本地翻译设置",
   "mccf.config.close": "关闭",
+  "mccf.config.disable_thinking": "强制关闭思考",
+  "mccf.config.disable_thinking_warning_body": "开启后翻译会更快、更省资源（省去正式回答前的内部推理过程）。但不是所有模型都支持被强制关闭思考——部分较新的模型版本可能会直接拒绝带这个参数的请求，导致这个 Provider 的翻译完全失效。如果开启后翻译突然不工作了，可以先把这个开关关掉试试。",
+  "mccf.config.disable_thinking_warning_title": "确定要强制关闭思考模式吗？",
   "mccf.config.endpoint": "API 地址",
   "mccf.config.endpoint.placeholder": "默认地址（留空即可）",
   "mccf.config.endpoint_reset": "地址已重置（保存后将使用默认地址）。",
@@ -39,6 +42,7 @@
   "mccf.config.provider_hint.mock": "调试用，无需配置。",
   "mccf.config.provider_hint.ollama": "本地部署，无需 API Key。",
   "mccf.config.provider_hint.openai": "需要 API Key，支持上下文。",
+  "mccf.config.provider_hint.zhipu": "需要 API Key，OpenAI 兼容。",
   "mccf.config.reset_endpoint": "恢复默认地址",
   "mccf.config.retry": "重试",
   "mccf.config.save": "保存",
@@ -95,5 +99,6 @@
   "mccf.provider.mock": "模拟 Provider（调试用）",
   "mccf.provider.ollama": "Ollama（本地部署）",
   "mccf.provider.openai": "OpenAI",
+  "mccf.provider.zhipu": "智谱 AI（GLM）",
   "mccf.tip.first_join": "[MCCF] MC 交流框架已就绪。前往 设置 → 控制 → 按键绑定 为 MCCF 绑定一个按键以打开配置界面。"
 }

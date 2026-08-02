@@ -13,6 +13,9 @@
   "mccf.config.clear_api_key": "Key löschen",
   "mccf.config.client_only_settings": "Nur-Client-Lokalübersetzungseinstellungen",
   "mccf.config.close": "Schließen",
+  "mccf.config.disable_thinking": "Denkmodus erzwungen deaktivieren",
+  "mccf.config.disable_thinking_warning_body": "Wenn aktiviert, werden Übersetzungen schneller und günstiger (weniger Tokens für internes Nachdenken vor der eigentlichen Antwort). Allerdings unterstützt nicht jedes Modell das erzwungene Deaktivieren des Denkmodus -- einige neuere Modellversionen könnten Anfragen mit dieser Option komplett ablehnen, wodurch die Übersetzung für diesen Anbieter nicht mehr funktioniert. Falls Übersetzungen nach dem Aktivieren nicht mehr funktionieren, versuchen Sie zuerst, es wieder auszuschalten.",
+  "mccf.config.disable_thinking_warning_title": "Denkmodus erzwungen deaktivieren?",
   "mccf.config.endpoint": "API-Endpoint",
   "mccf.config.endpoint.placeholder": "Standard-Endpoint (leer lassen)",
   "mccf.config.endpoint_reset": "Endpoint zurückgesetzt (beim Speichern wird der Standard verwendet).",
@@ -39,6 +42,7 @@
   "mccf.config.provider_hint.mock": "Nur Debug. Keine Konfiguration erforderlich.",
   "mccf.config.provider_hint.ollama": "Lokale Ausführung. Kein API-Key erforderlich.",
   "mccf.config.provider_hint.openai": "Erfordert API-Key. Unterstützt Kontext.",
+  "mccf.config.provider_hint.zhipu": "API-Schlüssel erforderlich. OpenAI-kompatibel.",
   "mccf.config.reset_endpoint": "Endpoint zurücksetzen",
   "mccf.config.retry": "Erneut versuchen",
   "mccf.config.save": "Speichern",
@@ -95,5 +99,6 @@
   "mccf.provider.mock": "Mock (Debug)",
   "mccf.provider.ollama": "Ollama (lokal)",
   "mccf.provider.openai": "OpenAI",
+  "mccf.provider.zhipu": "Zhipu AI (GLM)",
   "mccf.tip.first_join": "[MCCF] MC Conversation Framework ist bereit. Gehe zu Einstellungen → Steuerung → Tastenbelegung, um eine Taste für MCCF zuzuweisen und den Konfigurationsbildschirm zu öffnen."
 }
