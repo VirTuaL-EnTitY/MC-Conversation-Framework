@@ -13,6 +13,12 @@ import java.util.concurrent.CompletableFuture;
  * base_url 和 api_key，其余代码不用改），因此直接复用
  * {@link ChatCompletionsSupport} 的请求构造 / 响应解析逻辑。
  *
+ * 默认模型 kimi-k2.5 支持 {@code "thinking":{"type":"disabled"}} 关闭思考
+ * （{@code config.disableThinking} 为 true 时会带上这个参数）。**重要限制**：
+ * 如果玩家把模型手动改成 K3 系列，官方文档明确写"Reasoning is always on.
+ * There is no non-thinking mode."——传这个参数不会报错，但也不会真正关闭
+ * 思考，K3 强制思考是 API 本身的限制，不是这个开关失效。
+ *
  * Endpoint: POST https://api.moonshot.ai/v1/chat/completions
  * Auth: Authorization: Bearer <key>
  */
@@ -45,7 +51,7 @@ public class KimiTranslationProvider implements TranslationProvider {
 		String model = config.model.isBlank() ? "kimi-k2.5" : config.model;
 		String endpoint = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/v1/chat/completions";
 		String systemPrompt = ChatCompletionsSupport.buildSystemPrompt(request);
-		String body = ChatCompletionsSupport.buildRequestBody(model, systemPrompt, request.sourceText());
+		String body = ChatCompletionsSupport.buildRequestBody(model, systemPrompt, request.sourceText(), config.disableThinking);
 
 		return HttpProviderSupport.postJson(endpoint, body, Map.of(
 				"Authorization", "Bearer " + config.apiKey,

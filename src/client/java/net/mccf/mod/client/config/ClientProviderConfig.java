@@ -26,6 +26,12 @@ public class ClientProviderConfig {
 	public String endpoint = "";
 	public boolean isCustomEndpoint = false;
 	/**
+	 * 是否强制关闭该 Provider 的思考模式。与服务端 {@code ProviderConfig
+	 * #disableThinking} 字段一一对应，见其注释了解各 Provider 的支持情况
+	 * 与限制。默认 false（不干预默认行为）。
+	 */
+	public boolean disableThinking = false;
+	/**
 	 * 玩家对 endpoint 的编辑意图。默认 UNCHANGED——从服务端快照构造时玩家
 	 * 还没对 endpoint 做任何改动。UI 层（onResetEndpoint / onSave）会显式
 	 * 修改这个字段，buildUpdateJson 读取它决定发什么给服务端。

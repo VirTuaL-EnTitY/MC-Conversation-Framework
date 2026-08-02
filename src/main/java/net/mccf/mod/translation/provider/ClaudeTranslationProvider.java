@@ -14,6 +14,15 @@ import java.util.concurrent.CompletableFuture;
  * Endpoint: POST https://api.anthropic.com/v1/messages
  * Auth: x-api-key: <key>（注意不是 Authorization: Bearer）
  * 必须带 anthropic-version 请求头，且 max_tokens 是必填字段。
+ *
+ * 思考控制：默认模型 claude-sonnet-4-6 属于"extended thinking is deprecated
+ * on the Claude 4.6 models（requests using it still succeed）"这个区间——
+ * 旧的 {@code thinking: {type: "disabled"}} 参数在这个模型上仍然可用。
+ * **重要限制**：Claude 4.7 及更新的模型不再支持这个参数结构，传了会返回
+ * 400 错误（官方文档明确写"do not support it and reject requests"）；更新的
+ * 型号改用 adaptive thinking 的 {@code effort} 参数控制强度，无法简单
+ * "禁用"。玩家如果把模型手动改成 4.7+ 系列，打开这个开关会导致翻译请求
+ * 失败，这是 API 本身的限制，配置界面已有相应警告说明。
  */
 public class ClaudeTranslationProvider implements TranslationProvider {
 
@@ -45,7 +54,7 @@ public class ClaudeTranslationProvider implements TranslationProvider {
 		String model = config.model.isBlank() ? "claude-sonnet-4-6" : config.model;
 		String endpoint = ChatCompletionsSupport.stripTrailingSlash(config.effectiveEndpoint(ID)) + "/v1/messages";
 		String systemPrompt = ChatCompletionsSupport.buildSystemPrompt(request);
-		String body = buildRequestBody(model, systemPrompt, request.sourceText());
+		String body = buildRequestBody(model, systemPrompt, request.sourceText(), config.disableThinking);
 
 		return HttpProviderSupport.postJson(endpoint, body, Map.of(
 				"x-api-key", config.apiKey,
@@ -67,12 +76,14 @@ public class ClaudeTranslationProvider implements TranslationProvider {
 		)).thenApply(ChatCompletionsSupport::parseModelListResponse);
 	}
 
-	private static String buildRequestBody(String model, String systemPrompt, String userText) {
+	private static String buildRequestBody(String model, String systemPrompt, String userText, boolean disableThinking) {
+		String thinkingField = disableThinking ? ",\"thinking\":{\"type\":\"disabled\"}" : "";
 		return "{"
 				+ "\"model\":\"" + HttpProviderSupport.escapeJson(model) + "\","
 				+ "\"max_tokens\":1024,"
 				+ "\"system\":\"" + HttpProviderSupport.escapeJson(systemPrompt) + "\","
 				+ "\"messages\":[{\"role\":\"user\",\"content\":\"" + HttpProviderSupport.escapeJson(userText) + "\"}]"
+				+ thinkingField
 				+ "}";
 	}
 

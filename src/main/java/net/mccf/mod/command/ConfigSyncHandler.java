@@ -50,6 +50,7 @@ public class ConfigSyncHandler {
 			pcJson.addProperty("model", nullToEmpty(pc.model));
 			pcJson.addProperty("endpoint", pc.effectiveEndpoint(entry.getKey()));
 			pcJson.addProperty("isCustomEndpoint", pc.endpoint != null && !pc.endpoint.isBlank());
+			pcJson.addProperty("disableThinking", pc.disableThinking);
 			providersJson.add(entry.getKey(), pcJson);
 		}
 		root.add("providers", providersJson);
@@ -119,6 +120,9 @@ public class ConfigSyncHandler {
 						existing.endpoint = "";
 					} else if (pcJson.has("endpoint")) {
 						existing.endpoint = pcJson.get("endpoint").getAsString();
+					}
+					if (pcJson.has("disableThinking")) {
+						existing.disableThinking = pcJson.get("disableThinking").getAsBoolean();
 					}
 					updated.put(providerId, existing);
 				}

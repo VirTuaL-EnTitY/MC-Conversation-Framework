@@ -9,13 +9,18 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.AlwaysSelectedEntryListWidget;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.CyclingButtonWidget;
+import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 import net.minecraft.util.Colors;
 
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 聊天历史记录界面：展示本次连接期间 {@link ChatHistoryManager} 记录下的所有消息，
@@ -33,7 +38,8 @@ import java.util.List;
  * 只读界面：没有编辑/删除单条记录的功能（不是聊天工具，是"回看"工具），
  * 只提供"关闭"按钮返回。
  *
- * 分组方式（{@link ChatHistoryManager#groupedSnapshot()} 已经整理好）：
+ * 分组方式（{@link ChatHistoryManager#groupedSnapshot(ChatHistoryManager.FilterOptions,
+ * ChatHistoryManager.SortMode)} 已经整理好）：
  * - 大标题：这个 Conversation 里出现过的所有人名（"LimAimo、test、Alex 的对话"）——
  *   用 {@code ConversationRosterManager} 记录的、服务端下发的权威参与者名单，
  *   而不是客户端自己猜。
@@ -47,6 +53,13 @@ import java.util.List;
  *   客户端完全被动接收数据的自然结果，不需要客户端自己做任何额外判断。
  * - 无归属消息（纯客户端模式的 CLIENT_ONLY，没有服务端 Conversation 概念）
  *   各自单独成组，不与其他消息混在一起。
+ *
+ * 筛选 + 排序（应用户要求新增）：标题栏最右边有一个小按钮，点击展开/收起一个
+ * 筛选/排序面板——平时收起不占用列表可用高度，展开时才显示完整控件。三个筛选
+ * 维度（来源、参与者、关键词）可以同时组合使用（AND 关系），按对话分组整体
+ * 过滤（不是单条消息级别，见 {@link ChatHistoryManager#matchesFilter} 的说明）。
+ * 排序方式四选一。筛选/排序状态只存在于本次打开界面期间，不持久化（关闭界面
+ * 后下次重新打开会回到默认的"不筛选 + 时间倒序"）。
  */
 public class ChatHistoryScreen extends Screen {
 
@@ -70,6 +83,28 @@ public class ChatHistoryScreen extends Screen {
 	 */
 	private static final int ITEM_HEIGHT = 12;
 
+	/** 筛选/排序面板展开时的高度，列表顶部要相应下移让出这块空间。 */
+	private static final int FILTER_PANEL_HEIGHT = 84;
+
+	/** 面板是否展开——默认收起，不影响原有"打开即看列表"的体验。 */
+	private boolean filterPanelExpanded = false;
+
+	/** 当前选中的来源筛选（空集合 = 不筛选/全选）。用 EnumSet 保证四个来源枚举值顺序稳定。 */
+	private final Set<ChatHistoryEntry.Source> selectedSources = EnumSet.noneOf(ChatHistoryEntry.Source.class);
+	/** 当前选中的参与者筛选；"" 表示"全部"（不筛选）。 */
+	private String selectedParticipant = "";
+	private String keywordInput = "";
+	private ChatHistoryManager.SortMode sortMode = ChatHistoryManager.SortMode.TIME_DESC;
+
+	private ButtonWidget filterToggleButton;
+	private ButtonWidget sourceSelfButton;
+	private ButtonWidget sourceVisibleButton;
+	private ButtonWidget sourceAudibleButton;
+	private ButtonWidget sourceClientOnlyButton;
+	private CyclingButtonWidget<String> participantButton;
+	private TextFieldWidget keywordField;
+	private CyclingButtonWidget<ChatHistoryManager.SortMode> sortButton;
+
 	public ChatHistoryScreen(Screen parent) {
 		super(Text.translatable("mccf.history.title"));
 		this.parent = parent;
@@ -77,20 +112,197 @@ public class ChatHistoryScreen extends Screen {
 
 	@Override
 	protected void init() {
-		listWidget = new HistoryListWidget(MinecraftClient.getInstance(),
-				this.width, 32, this.height - 40, ITEM_HEIGHT);
+		// 标题栏最右边的"筛选"小按钮——应用户明确要求放在标题最右边，点开才有
+		// 详细面板，平时不占用列表空间。宽度较窄（60px），只需要放得下"筛选"
+		// 这类简短文字或一个漏斗图标+文字。
+		int toggleWidth = 60;
+		filterToggleButton = addDrawableChild(ButtonWidget.builder(
+						Text.translatable("mccf.history.filter.button"), button -> toggleFilterPanel())
+				.dimensions(this.width - toggleWidth - 8, 6, toggleWidth, 16)
+				.build());
 
-		List<ChatHistoryManager.ConversationGroup> groups = ChatHistoryManager.groupedSnapshot();
+		buildFilterPanelWidgets();
+		rebuildList();
+
+		addDrawableChild(ButtonWidget.builder(Text.translatable("mccf.history.close"), button -> close())
+				.dimensions(this.width / 2 - 60, this.height - 28, 120, 20)
+				.build());
+	}
+
+	/**
+	 * 创建筛选/排序面板里的所有控件（来源多选、参与者下拉、关键词输入框、排序
+	 * 下拉）。控件本身始终存在（加入 {@code addDrawableChild}），可见性/可交互性
+	 * 由 {@link #filterPanelExpanded} 控制——收起时 {@code visible = false}，
+	 * Minecraft 的 ClickableWidget 在 visible=false 时既不渲染也不响应点击，
+	 * 不需要额外处理输入拦截问题。
+	 */
+	private void buildFilterPanelWidgets() {
+		int panelTop = 26;
+		int rowHeight = 18;
+		int col1 = 8;
+		int fieldHeight = 16;
+
+		// 来源多选：四个独立的开关按钮并排，每个代表一个 Source 枚举值。用普通
+		// ButtonWidget 手动维护勾选态（点击切换 selectedSources 里是否包含该来源），
+		// 而不是 CyclingButtonWidget<Boolean>——四个来源要并排挤在一行里，每个的
+		// 宽度需要按文字自适应，独立 ButtonWidget 更方便逐个控制宽度和位置。
+		int sourceY = panelTop;
+		int sourceX = col1;
+		sourceSelfButton = addDrawableChild(makeSourceToggle(ChatHistoryEntry.Source.SELF,
+				"mccf.history.source.self", sourceX, sourceY));
+		sourceX += sourceSelfButton.getWidth() + 4;
+		sourceVisibleButton = addDrawableChild(makeSourceToggle(ChatHistoryEntry.Source.VISIBLE,
+				"mccf.history.source.visible", sourceX, sourceY));
+		sourceX += sourceVisibleButton.getWidth() + 4;
+		sourceAudibleButton = addDrawableChild(makeSourceToggle(ChatHistoryEntry.Source.AUDIBLE,
+				"mccf.history.source.audible", sourceX, sourceY));
+		sourceX += sourceAudibleButton.getWidth() + 4;
+		sourceClientOnlyButton = addDrawableChild(makeSourceToggle(ChatHistoryEntry.Source.CLIENT_ONLY,
+				"mccf.history.source.client_only", sourceX, sourceY));
+
+		int row2Y = panelTop + rowHeight;
+		int halfWidth = (this.width - 16 - 8) / 2;
+
+		// 参与者下拉：选项是"全部"（空字符串，代表不筛选）+ 当前历史记录里出现过
+		// 的所有玩家显示名。每次面板重新构建时都重新收集一遍名单——玩家可能是
+		// 打开界面之后才有新消息进来，用最新的 knownSpeakerNames() 更准确。
+		List<String> participantOptions = new ArrayList<>();
+		participantOptions.add(""); // "全部"选项，空字符串代表不筛选
+		participantOptions.addAll(ChatHistoryManager.knownSpeakerNames());
+		participantButton = addDrawableChild(CyclingButtonWidget.<String>builder(name ->
+						name.isEmpty() ? Text.translatable("mccf.history.filter.participant_all") : Text.literal(name))
+				.values(participantOptions)
+				.initially(participantOptions.contains(selectedParticipant) ? selectedParticipant : "")
+				.build(col1, row2Y, halfWidth, fieldHeight,
+						Text.translatable("mccf.history.filter.participant"),
+						(button, value) -> selectedParticipant = value));
+
+		sortButton = addDrawableChild(CyclingButtonWidget.<ChatHistoryManager.SortMode>builder(mode ->
+						Text.translatable(sortModeKey(mode)))
+				.values(List.of(ChatHistoryManager.SortMode.values()))
+				.initially(sortMode)
+				.build(col1 + halfWidth + 8, row2Y, halfWidth, fieldHeight,
+						Text.translatable("mccf.history.sort.label"),
+						(button, value) -> { sortMode = value; rebuildList(); }));
+
+		int row3Y = row2Y + rowHeight;
+		keywordField = addDrawableChild(new TextFieldWidget(
+				MinecraftClient.getInstance().textRenderer, col1, row3Y, this.width - 16, fieldHeight,
+				Text.translatable("mccf.history.filter.keyword")));
+		keywordField.setMaxLength(64);
+		keywordField.setPlaceholder(Text.translatable("mccf.history.filter.keyword"));
+		keywordField.setText(keywordInput);
+		// 关键词是文本输入，不适合像其他筛选项那样"改了就立刻生效"——打字过程中
+		// 每敲一个字符都重建列表会很卡，也容易在打到一半时列表就跳来跳去。改为
+		// 失去焦点（比如点击别处、按 Tab）时才应用，配合下面的 setChangedListener
+		// 仅同步 keywordInput 字段，实际触发 rebuildList() 放在 onKeywordChanged。
+		keywordField.setChangedListener(text -> keywordInput = text);
+
+		syncFilterPanelVisibility();
+	}
+
+	/** 创建一个来源筛选的开关按钮：点击切换该来源是否在 selectedSources 里，文字前缀用 ✓/✗ 提示当前状态。 */
+	private ButtonWidget makeSourceToggle(ChatHistoryEntry.Source source, String labelKey, int x, int y) {
+		var textRenderer = MinecraftClient.getInstance().textRenderer;
+		String label = Text.translatable(labelKey).getString();
+		int width = textRenderer.getWidth(label) + 20;
+		return ButtonWidget.builder(sourceToggleText(source, labelKey), button -> {
+					if (selectedSources.contains(source)) {
+						selectedSources.remove(source);
+					} else {
+						selectedSources.add(source);
+					}
+					button.setMessage(sourceToggleText(source, labelKey));
+					rebuildList();
+				})
+				.dimensions(x, y, width, 16)
+				.build();
+	}
+
+	private Text sourceToggleText(ChatHistoryEntry.Source source, String labelKey) {
+		String prefix = selectedSources.contains(source) ? "✓ " : "";
+		return Text.literal(prefix).append(Text.translatable(labelKey));
+	}
+
+	private String sortModeKey(ChatHistoryManager.SortMode mode) {
+		return switch (mode) {
+			case TIME_DESC -> "mccf.history.sort.time_desc";
+			case TIME_ASC -> "mccf.history.sort.time_asc";
+			case PARTICIPANT_COUNT_DESC -> "mccf.history.sort.participant_count";
+			case MESSAGE_COUNT_DESC -> "mccf.history.sort.message_count";
+		};
+	}
+
+	private void toggleFilterPanel() {
+		filterPanelExpanded = !filterPanelExpanded;
+		syncFilterPanelVisibility();
+		// 面板收起时，把还没应用的关键词输入也一并应用一次——避免玩家打完关键词
+		// 直接收起面板、觉得筛选没生效的困惑（关键词是"失焦/收起时应用"的策略，
+		// 收起面板本身也应该算一次"离开输入框"）。
+		if (!filterPanelExpanded) {
+			applyKeywordAndRebuild();
+		}
+		rebuildList(); // 面板高度变化导致列表可用区域变化，需要重新构建
+	}
+
+	private void applyKeywordAndRebuild() {
+		if (keywordField != null) {
+			keywordInput = keywordField.getText();
+		}
+	}
+
+	private void syncFilterPanelVisibility() {
+		boolean v = filterPanelExpanded;
+		if (sourceSelfButton != null) sourceSelfButton.visible = v;
+		if (sourceVisibleButton != null) sourceVisibleButton.visible = v;
+		if (sourceAudibleButton != null) sourceAudibleButton.visible = v;
+		if (sourceClientOnlyButton != null) sourceClientOnlyButton.visible = v;
+		if (participantButton != null) participantButton.visible = v;
+		if (keywordField != null) keywordField.visible = v;
+		if (sortButton != null) sortButton.visible = v;
+	}
+
+	/**
+	 * 重新根据当前筛选/排序状态构建列表内容。任何筛选条件或排序方式变化、以及
+	 * 面板展开/收起导致列表可用高度变化时都要调用这个方法——不是只在 init()
+	 * 里调用一次，因为筛选/排序是交互式的，玩家改了条件要能立刻看到结果。
+	 */
+	private void rebuildList() {
+		// 关键词筛选在玩家还在打字、尚未失焦/收起面板前不生效（见 keywordField
+		// 的 setChangedListener 说明）；这里读取的是"已经应用"的 keywordInput，
+		// 不是 keywordField 当前的实时文本——除非本次调用就是由
+		// applyKeywordAndRebuild 触发的（那种情况 keywordInput 已经是最新值）。
+		ChatHistoryManager.FilterOptions filter = new ChatHistoryManager.FilterOptions(
+				selectedSources.isEmpty() ? null : EnumSet.copyOf(selectedSources),
+				selectedParticipant.isEmpty() ? null : selectedParticipant,
+				keywordInput.isEmpty() ? null : keywordInput);
+
+		// 每次重建都会创建一个全新的 HistoryListWidget 实例（因为 listTop 可能
+		// 因面板展开/收起而变化，AlwaysSelectedEntryListWidget 的位置/尺寸在
+		// 1.21.1 构造完成后不方便动态修改，重新构造比找 API 调整现有实例更简单
+		// 可靠）。旧实例必须先从 Screen 的子控件集合里移除，否则每次筛选/排序
+		// 变化都会残留一个失效的列表在原地——不仅浪费内存，旧列表的裁剪区域/
+		// 输入响应还会跟新列表叠加，导致点击、滚动等交互错乱。
+		if (listWidget != null) {
+			remove(listWidget);
+		}
+
+		int listTop = filterPanelExpanded ? 26 + FILTER_PANEL_HEIGHT : 32;
+		listWidget = new HistoryListWidget(MinecraftClient.getInstance(),
+				this.width, listTop, this.height - 40, ITEM_HEIGHT);
+
+		List<ChatHistoryManager.ConversationGroup> groups =
+				ChatHistoryManager.groupedSnapshot(filter, sortMode);
 		isEmpty = groups.isEmpty();
 
-		// groupedSnapshot() 已经按"组内最新消息时间"倒序排好（最近活跃的对话
-		// 排最前面），这里直接按返回顺序渲染，组内 items 是时间正序——为了
-		// 让"最新的在最上面"这个直觉在组内也成立，实际渲染时组内也倒序展示
-		// （与旧版本"最新消息在最上面"的展示习惯保持一致）。
+		// groupedSnapshot() 已经按选定的排序方式排好，这里直接按返回顺序渲染，
+		// 组内 items 是时间正序——为了让"最新的在最上面"这个直觉在组内也成立，
+		// 实际渲染时组内也倒序展示（与旧版本"最新消息在最上面"的展示习惯保持
+		// 一致，不随整体排序方向联动，维持组内展示顺序的稳定性）。
 		for (ChatHistoryManager.ConversationGroup group : groups) {
 			listWidget.addEntry(new GroupTitleWidget(group));
 
-			List<ChatTimelineItem> items = new java.util.ArrayList<>(group.items());
+			List<ChatTimelineItem> items = new ArrayList<>(group.items());
 			java.util.Collections.reverse(items);
 			for (ChatTimelineItem item : items) {
 				if (item instanceof ChatTimelineItem.Message m) {
@@ -101,15 +313,22 @@ public class ChatHistoryScreen extends Screen {
 			}
 		}
 		addSelectableChild(listWidget);
-
-		addDrawableChild(ButtonWidget.builder(Text.translatable("mccf.history.close"), button -> close())
-				.dimensions(this.width / 2 - 60, this.height - 28, 120, 20)
-				.build());
 	}
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
 		super.render(context, mouseX, mouseY, delta);
+
+		// 关键词输入框失焦时应用筛选——每帧检查一次"当前是否仍聚焦在输入框上"，
+		// 不是最优雅的做法，但比给 TextFieldWidget 包一层监听失焦事件的封装
+		// 简单可靠得多，对渲染性能的影响可忽略（一次布尔比较 + 偶尔的字符串
+		// 比较）。只在面板展开时检查，收起时 toggleFilterPanel 已经应用过一次。
+		if (filterPanelExpanded && keywordField != null && !keywordField.isFocused()
+				&& !keywordInput.equals(keywordField.getText())) {
+			applyKeywordAndRebuild();
+			rebuildList();
+		}
+
 		// 列表 widget 不在 addDrawableChild 里（只 addSelectableChild），与
 		// ModelSelectionScreen 同理，这里手动渲染以控制绘制顺序。
 		listWidget.render(context, mouseX, mouseY, delta);
@@ -119,6 +338,22 @@ public class ChatHistoryScreen extends Screen {
 			context.drawCenteredTextWithShadow(textRenderer, Text.translatable("mccf.history.empty"),
 					this.width / 2, this.height / 2, Colors.LIGHT_GRAY);
 		}
+	}
+
+	/**
+	 * 关键词回车提交：玩家在输入框里按回车，应该立即应用筛选，不用等到失焦或
+	 * 收起面板——这是比"每帧轮询失焦状态"更即时的补充路径，两者不冲突
+	 * （keyPressed 优先触发，render 里的轮询作为兜底，防止玩家用鼠标点击别处
+	 * 导致的失焦没有触发 keyPressed）。
+	 */
+	@Override
+	public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+		if (filterPanelExpanded && keywordField != null && keywordField.isFocused() && keyCode == 257 /* GLFW_KEY_ENTER */) {
+			applyKeywordAndRebuild();
+			rebuildList();
+			return true;
+		}
+		return super.keyPressed(keyCode, scanCode, modifiers);
 	}
 
 	@Override

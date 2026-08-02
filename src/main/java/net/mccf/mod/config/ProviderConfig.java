@@ -24,6 +24,21 @@ public class ProviderConfig {
 	 */
 	public String endpoint = "";
 
+	/**
+	 * 是否强制关闭该 Provider 的"思考"/"推理"模式（如果它支持的话）。
+	 *
+	 * 默认关闭（false）——不强制干预 Provider 的默认行为。每个 Provider
+	 * 各自独立一份这个开关（不是全局一个），应用户明确要求"只想关 DeepSeek
+	 * 的思考，不想关 Kimi 的"这类精细控制。
+	 *
+	 * 只对确认支持这个能力的 Provider 生效：DeepSeek、Kimi、Claude、Gemini、
+	 * 智谱（Zhipu）——具体每家用什么参数关闭、参数是否对所有模型代次都有效，
+	 * 见各自 TranslationProvider 实现类的注释。DeepL、Ollama、Mock 这几个
+	 * Provider 没有"思考"概念，这个字段对它们没有意义（配置界面也不会展示
+	 * 这个开关）。
+	 */
+	public boolean disableThinking = false;
+
 	public ProviderConfig() {}
 
 	public ProviderConfig(String apiKey, String model) {

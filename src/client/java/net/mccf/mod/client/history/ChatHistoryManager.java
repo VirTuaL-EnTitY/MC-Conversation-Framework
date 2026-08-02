@@ -82,14 +82,121 @@ public final class ChatHistoryManager {
 			List<String> participantNames,
 			List<ChatTimelineItem> items,
 			long groupStartMillis
-	) {}
+	) {
+		/** 这个分组里 ChatHistoryEntry（不含系统事件）的条数，供按消息条数排序使用。 */
+		public long messageCount() {
+			return items.stream().filter(i -> i instanceof ChatTimelineItem.Message).count();
+		}
+
+		/** 组内最后一条记录（消息或系统事件）的时间戳，供按时间排序使用。 */
+		public long lastTimestampMillis() {
+			return items.get(items.size() - 1).timestampMillis();
+		}
+	}
+
+	/**
+	 * 聊天历史筛选条件——三个维度可以同时组合使用（AND 关系）。任意一个字段为
+	 * null 或空，表示该维度不参与筛选（即"不限"）。
+	 *
+	 * @param allowedSources      允许的消息来源集合；null 或空集合表示不限（全部来源都算）
+	 * @param participantFilter   参与者显示名（精确匹配某个玩家名字）；null 或空字符串表示不限
+	 * @param keyword             关键词，匹配消息的原文或译文（包含即可，大小写不敏感）；
+	 *                             null 或空字符串表示不限
+	 */
+	public record FilterOptions(
+			java.util.Set<ChatHistoryEntry.Source> allowedSources,
+			String participantFilter,
+			String keyword
+	) {
+		/** 不筛选任何维度的默认选项——等价于展示全部历史记录。 */
+		public static FilterOptions none() {
+			return new FilterOptions(null, null, null);
+		}
+
+		public boolean hasSourceFilter() {
+			return allowedSources != null && !allowedSources.isEmpty();
+		}
+
+		public boolean hasParticipantFilter() {
+			return participantFilter != null && !participantFilter.isBlank();
+		}
+
+		public boolean hasKeywordFilter() {
+			return keyword != null && !keyword.isBlank();
+		}
+
+		public boolean isEmpty() {
+			return !hasSourceFilter() && !hasParticipantFilter() && !hasKeywordFilter();
+		}
+	}
+
+	/** 对话分组的排序方式。 */
+	public enum SortMode {
+		/** 按组内最后一条记录的时间倒序——最近有新消息的对话排最前面（默认行为）。 */
+		TIME_DESC,
+		/** 按组内最早一条记录的时间正序——最早开始的对话排最前面。 */
+		TIME_ASC,
+		/** 按参与人数从多到少；人数相同时退回 TIME_DESC 作为次要排序键，保证结果稳定。 */
+		PARTICIPANT_COUNT_DESC,
+		/** 按消息条数（不含系统事件）从多到少；条数相同时退回 TIME_DESC 作为次要排序键。 */
+		MESSAGE_COUNT_DESC
+	}
+
+	/**
+	 * 判断某个对话分组是否满足给定的筛选条件。
+	 *
+	 * 筛选粒度是"按对话分组"而不是"按单条消息"：只要这个分组里**有任意一条
+	 * {@link ChatHistoryEntry} 消息**同时满足"来源在允许范围内 AND （未设置
+	 * 参与者筛选，或该分组参与者名单包含指定玩家）AND （未设置关键词，或该
+	 * 消息原文/译文命中关键词）"，就认为整个分组通过筛选——通过后分组里的
+	 * 所有消息和系统提示都会被完整展示，不会只保留组内满足条件的那部分消息。
+	 * 这样处理是因为"只隐藏组内不符合的单条消息、组标题还在"容易让人看不懂
+	 * 为什么某条消息突然消失了，按对话分组展示更符合"看对话"而非"看碎片消息"
+	 * 的使用场景。
+	 *
+	 * 参与者筛选对没有服务端参与者名单的分组（CLIENT_ONLY 无归属消息，
+	 * {@code participantNames} 为空列表）恒不通过——这类消息没有"对话参与者"
+	 * 概念，选中了参与者筛选就意味着用户想看"某人参与的对话"，这类分组不
+	 * 符合，应该被排除。
+	 */
+	private static boolean matchesFilter(ConversationGroup group, FilterOptions filter) {
+		if (filter == null || filter.isEmpty()) return true;
+
+		if (filter.hasParticipantFilter() && !group.participantNames().contains(filter.participantFilter())) {
+			return false;
+		}
+
+		// 走到这里说明参与者维度已经通过（或未设置）；接下来检查是否存在
+		// 至少一条消息同时满足来源和关键词维度。
+		String keywordLower = filter.hasKeywordFilter() ? filter.keyword().toLowerCase(java.util.Locale.ROOT) : null;
+		for (ChatTimelineItem item : group.items()) {
+			if (!(item instanceof ChatTimelineItem.Message m)) continue;
+			ChatHistoryEntry entry = m.entry();
+
+			if (filter.hasSourceFilter() && !filter.allowedSources().contains(entry.source())) continue;
+
+			if (keywordLower != null) {
+				String original = entry.originalText() == null ? "" : entry.originalText().toLowerCase(java.util.Locale.ROOT);
+				String translated = entry.translatedText() == null ? "" : entry.translatedText().toLowerCase(java.util.Locale.ROOT);
+				if (!original.contains(keywordLower) && !translated.contains(keywordLower)) continue;
+			}
+
+			// 这条消息同时满足来源和关键词维度（参与者维度已经在分组级别检查过）。
+			return true;
+		}
+		return false;
+	}
 
 	/**
 	 * 把所有聊天消息 + 系统事件按 conversationId 分组、组内按时间正序排列，
-	 * 分组之间按"组内最新一条消息的时间"倒序排列（最近活跃的对话排最前面，
-	 * 与聊天历史界面"最想看到最近发生了什么"的直觉一致）。
+	 * 按 {@code filter} 过滤分组、按 {@code sortMode} 排序后返回。
+	 *
+	 * @param filter   筛选条件，传 {@link FilterOptions#none()} 或 null 表示不筛选
+	 * @param sortMode 排序方式，传 null 时按 {@link SortMode#TIME_DESC} 处理
 	 */
-	public static synchronized List<ConversationGroup> groupedSnapshot() {
+	public static synchronized List<ConversationGroup> groupedSnapshot(FilterOptions filter, SortMode sortMode) {
+		SortMode effectiveSort = sortMode == null ? SortMode.TIME_DESC : sortMode;
+
 		// key：真实 conversationId，或者对于无归属消息，用一个基于该消息自身
 		// 身份（speakerId + timestampMillis 组合）合成的字符串 key，保证每条
 		// 无归属消息各自独立成组，不会被意外聚在一起（它们之间没有任何关联性，
@@ -125,14 +232,45 @@ public final class ChatHistoryManager {
 			groups.add(new ConversationGroup(conversationId, participantNames, items, groupStart));
 		}
 
-		// 按"组内最后一条的时间"倒序——最近有新消息的对话排最前面。
-		groups.sort((a, b) -> {
-			long lastA = a.items().get(a.items().size() - 1).timestampMillis();
-			long lastB = b.items().get(b.items().size() - 1).timestampMillis();
-			return Long.compare(lastB, lastA);
-		});
+		if (filter != null && !filter.isEmpty()) {
+			groups.removeIf(g -> !matchesFilter(g, filter));
+		}
+
+		switch (effectiveSort) {
+			case TIME_ASC -> groups.sort(java.util.Comparator.comparingLong(ConversationGroup::groupStartMillis));
+			case PARTICIPANT_COUNT_DESC -> groups.sort(
+					java.util.Comparator.<ConversationGroup>comparingInt(g -> g.participantNames().isEmpty() ? 1 : g.participantNames().size())
+							.reversed()
+							.thenComparing(java.util.Comparator.comparingLong(ConversationGroup::lastTimestampMillis).reversed()));
+			case MESSAGE_COUNT_DESC -> groups.sort(
+					java.util.Comparator.<ConversationGroup>comparingLong(ConversationGroup::messageCount)
+							.reversed()
+							.thenComparing(java.util.Comparator.comparingLong(ConversationGroup::lastTimestampMillis).reversed()));
+			case TIME_DESC -> groups.sort(java.util.Comparator.comparingLong(ConversationGroup::lastTimestampMillis).reversed());
+		}
 
 		return groups;
+	}
+
+	/** 无参默认版本：不筛选，按时间倒序——等价于本项目引入筛选/排序之前的原有行为。 */
+	public static synchronized List<ConversationGroup> groupedSnapshot() {
+		return groupedSnapshot(FilterOptions.none(), SortMode.TIME_DESC);
+	}
+
+	/**
+	 * 收集当前历史记录里所有出现过的说话者显示名（去重，按首次出现顺序），
+	 * 供参与者筛选下拉框使用。过滤掉空白名字（CLIENT_ONLY 来源的消息
+	 * {@code speakerName()} 可能是空字符串，见 ChatHistoryEntry 相关处理）。
+	 */
+	public static synchronized List<String> knownSpeakerNames() {
+		java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+		for (ChatHistoryEntry entry : ENTRIES) {
+			String name = entry.speakerName();
+			if (name != null && !name.isBlank()) {
+				names.add(name);
+			}
+		}
+		return new ArrayList<>(names);
 	}
 
 	/** 断开连接时清空——历史记录不跨服务器/世界保留，避免不同服务器的聊天记录混在一起造成误解。 */

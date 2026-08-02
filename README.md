@@ -383,6 +383,63 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-07-30　0.14.0 新增：聊天历史记录支持筛选与排序
+
+聊天历史记录界面新增筛选和排序功能，应用户要求"再加一个聊天筛选以及更改
+排序方式"。
+
+**1.（协议无变化，纯客户端功能）`ChatHistoryManager` 新增筛选/排序支持**
+- 新增 `FilterOptions`（record）：三个筛选维度——来源
+  （`allowedSources`，`Set<ChatHistoryEntry.Source>`）、参与者
+  （`participantFilter`，精确匹配玩家显示名）、关键词
+  （`keyword`，匹配原文或译文，包含即可、大小写不敏感）——可以同时组合
+  使用（AND 关系），任意维度为空表示该维度不参与筛选。
+- 新增 `SortMode`（枚举）：`TIME_DESC`（默认，组内最后一条时间倒序）、
+  `TIME_ASC`（组内最早一条时间正序）、`PARTICIPANT_COUNT_DESC`（参与
+  人数从多到少）、`MESSAGE_COUNT_DESC`（消息条数从多到少）——后两者
+  在排序键相同时都退回 `TIME_DESC` 作为次要排序键，保证多次渲染的结果
+  顺序稳定，不会随机跳动。
+- `groupedSnapshot()` 新增带参数重载 `groupedSnapshot(FilterOptions,
+  SortMode)`，原有无参版本保留作为默认行为（内部调用新方法，传入
+  "不筛选 + 时间倒序"），不破坏可能存在的其他调用方。
+- **筛选粒度是"按对话分组"而不是"按单条消息"**：只要一个对话分组里有
+  任意一条消息同时满足三个维度的条件，就把这个分组完整保留展示（包括
+  组内所有消息和系统提示），不会只隐藏组内不满足条件的单条消息——那样
+  容易让人看不懂某条消息为什么突然消失，按对话分组展示更符合"看对话"
+  而非"看碎片消息"的使用场景。参与者筛选对没有服务端参与者名单的分组
+  （CLIENT_ONLY 无归属消息）恒不通过，因为这类消息没有"对话参与者"概念。
+- 新增 `knownSpeakerNames()`：收集当前历史记录里出现过的所有说话者显示名
+  （去重、按首次出现顺序），过滤掉空白名字，供参与者筛选下拉框使用。
+
+**2. `ChatHistoryScreen` 新增筛选/排序面板**
+- 标题栏最右边新增一个"筛选"小按钮，点击展开/收起一个筛选/排序面板——
+  平时收起不占用列表可用高度，展开时列表顶部相应下移让出 84px 空间
+  （应用户明确要求"默认是一个小按钮，点开就会有详细的面板"）。
+- 面板内容：四个来源筛选开关（SELF/VISIBLE/AUDIBLE/CLIENT_ONLY，独立
+  `ButtonWidget`，点击切换是否勾选，文字前缀用 ✓ 提示当前状态）、参与者
+  下拉（`CyclingButtonWidget<String>`，选项来自 `knownSpeakerNames()`
+  + "全部"）、关键词文本输入框、排序方式下拉（`CyclingButtonWidget
+  <SortMode>`，四选一）。
+- 关键词输入框不是"改了就立刻生效"——打字过程中每敲一个字符都重建列表
+  会很卡，也容易在打到一半时列表就跳来跳去。改为失去焦点（点击别处/
+  收起面板）或按回车时才应用筛选，用 `render()` 里每帧检查一次输入框
+  是否已失焦、以及 `keyPressed()` 拦截回车键两条路径共同保证及时应用。
+- **修复一处真实 bug**：`rebuildList()` 每次筛选/排序变化都会创建新的
+  `HistoryListWidget` 实例，旧实例之前没有从 Screen 的子控件集合里
+  移除——会导致每次交互后残留一个失效的列表在原地，不仅浪费内存，旧
+  列表的裁剪区域和输入响应还会跟新列表叠加，导致点击、滚动等交互错乱。
+  修复为重建前先调用 `remove(listWidget)` 显式移除旧实例。
+- 筛选/排序状态只存在于本次打开界面期间，不持久化——关闭界面后下次
+  重新打开会回到默认的"不筛选 + 时间倒序"。
+
+**3. 本地化**
+- 新增 9 个翻译键（`mccf.history.filter.button`、`.participant`、
+  `.participant_all`、`.keyword`、`mccf.history.sort.label`、
+  `.time_desc`、`.time_asc`、`.participant_count`、`.message_count`），
+  9 种语言均已补全。
+
+版本号 `0.13.1` → `0.14.0`（按 9.1 规则升 minor：新增功能）。
+
 ### 2026-07-30　0.13.1 移除 CurseForge 相关说明 + 修正一处过期硬编码版本号
 
 作者决定这个项目不打算发布到 CurseForge，只发 GitHub Release 和 Modrinth。

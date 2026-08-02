@@ -85,12 +85,16 @@ public class ClientConfigState {
 			JsonObject providersJson = root.getAsJsonObject("providers");
 			for (String id : providersJson.keySet()) {
 				JsonObject pc = providersJson.getAsJsonObject(id);
-				providers.put(id, new ClientProviderConfig(
+				ClientProviderConfig cpc = new ClientProviderConfig(
 						getOrEmpty(pc, "apiKey"),
 						getOrEmpty(pc, "model"),
 						getOrEmpty(pc, "endpoint"),
 						pc.has("isCustomEndpoint") && pc.get("isCustomEndpoint").getAsBoolean()
-				));
+				);
+				// disableThinking 不在 4 参构造函数里（那几个参数是历史上就有的
+				// 字段，构造函数签名保持不变以免影响其他调用点），单独读取赋值。
+				cpc.disableThinking = pc.has("disableThinking") && pc.get("disableThinking").getAsBoolean();
+				providers.put(id, cpc);
 			}
 		}
 		// 补齐快照里没有的 Provider（不应该发生，但防止 UI 因缺 key 报 NPE）。
