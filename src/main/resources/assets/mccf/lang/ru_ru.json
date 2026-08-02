@@ -13,6 +13,9 @@
   "mccf.config.clear_api_key": "Очистить ключ",
   "mccf.config.client_only_settings": "Настройки локального перевода только клиент",
   "mccf.config.close": "Закрыть",
+  "mccf.config.disable_thinking": "Принудительно отключить размышления",
+  "mccf.config.disable_thinking_warning_body": "Включение этой опции ускоряет перевод и снижает затраты (меньше токенов уходит на внутренние рассуждения перед ответом). Однако не все модели поддерживают принудительное отключение размышления — некоторые новые версии могут полностью отклонять запрос с этим параметром, что сломает перевод для этого провайдера. Если после включения перевод перестал работать, попробуйте сначала выключить её обратно.",
+  "mccf.config.disable_thinking_warning_title": "Принудительно отключить режим размышления?",
   "mccf.config.endpoint": "API-эндпоинт",
   "mccf.config.endpoint.placeholder": "Эндпоинт по умолчанию (оставьте пустым)",
   "mccf.config.endpoint_reset": "Эндпоинт сброшен (при сохранении будет использоваться по умолчанию).",
@@ -39,6 +42,7 @@
   "mccf.config.provider_hint.mock": "Только для отладки. Настройка не требуется.",
   "mccf.config.provider_hint.ollama": "Локальное развёртывание. API-ключ не требуется.",
   "mccf.config.provider_hint.openai": "Требуется API-ключ. Поддерживает контекст.",
+  "mccf.config.provider_hint.zhipu": "Требуется API-ключ. Совместимо с OpenAI.",
   "mccf.config.reset_endpoint": "Сбросить эндпоинт",
   "mccf.config.retry": "Повторить",
   "mccf.config.save": "Сохранить",
@@ -95,5 +99,6 @@
   "mccf.provider.mock": "Имитация (отладка)",
   "mccf.provider.ollama": "Ollama (локально)",
   "mccf.provider.openai": "OpenAI",
+  "mccf.provider.zhipu": "Zhipu AI (GLM)",
   "mccf.tip.first_join": "[MCCF] MC Conversation Framework готов. Перейдите в Настройки → Управление → Назначение клавиш, чтобы назначить клавишу для MCCF и открыть экран конфигурации."
 }
