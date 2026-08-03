@@ -21,10 +21,11 @@ in-person talking:
 
 - **Translations only reach people who could actually hear you.** It's not
   a server-wide broadcast — MCCF checks real in-game distance and line-of-
-  sight to decide who "hears" a message. If someone can see you, the
-  translated text floats near you like a subtitle; if they're out of sight
-  but still in range, it shows above their hotbar instead. No more "the
-  whole server saw me muttering in a corner."
+  sight to decide who "hears" a message. If someone can see you (close
+  enough, line of sight clear), the translated text shows up in the chat
+  hud; if they're out of sight but still in range, it shows above their
+  hotbar as a HUD subtitle instead. No more "the whole server saw me
+  muttering in a corner."
 - **You pick the translation service, you bring your own API key.** Works
   with OpenAI, Claude, Gemini, DeepL, Kimi, DeepSeek, or a fully local/free
   option via Ollama. Server admins manage all of this from an in-game
@@ -46,7 +47,7 @@ in-person talking:
 2. **Install** by dropping the `.jar` into your Minecraft `mods` folder.
    - If you're a **server owner**: install it on both the server and your
      own client to get the full "spatial translation" experience (who can
-     hear whom, floating subtitle positions, etc.).
+     hear whom, near/far dispatch to chat hud vs. hotbar subtitle, etc.).
    - If you're just a **player** on a server that doesn't have the mod
      installed: install it on your client anyway — it will automatically
      fall back to **Client-Only Mode**, translating chat locally just for
@@ -84,11 +85,7 @@ in-person talking:
   from silently changing everyone's translation provider. Your personal
   Client-Only Mode settings, on the other hand, are yours alone to edit,
   regardless of your op status.
-- **This is Minecraft 1.21.1 only.** It's intentionally pinned to this
-  version — see the Chinese README's technical section for why (short
-  version: a Fabric API rendering hook this mod depends on for floating
-  subtitles was removed in later 1.21.x releases, with no stable
-  replacement yet).
+- **This is Minecraft 1.21.1.**
 
 ## Want the full technical details?
 

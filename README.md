@@ -16,9 +16,9 @@
 它还做了几件让这套翻译更"沉浸"、更贴近真实说话的事：
 
 - **翻译只给听得到的人看**：不是全服广播式的翻译，而是按游戏内实际的距离/是否
-  被墙挡住来决定谁能"听到"这句话——离得近能看到文字浮在说话人头顶，离得远看不到人
-  只能听到就显示在物品栏上方，跟真实说话的感觉一致，不会出现"全服都看到你在哪个
-  角落嘀咕"的尴尬。
+  被墙挡住来决定谁能"听到"这句话——离得近（看得见说话者）的消息出现在聊天栏，
+  离得远看不到人只能听到的就显示在物品栏上方，跟真实说话的感觉一致，不会出现
+  "全服都看到你在哪个角落嘀咕"的尴尬。
 - **翻译服务你自己选，自己的 Key 自己填**：支持接入 OpenAI、Claude、Gemini、DeepL、
   Kimi、DeepSeek，也支持完全本地免费跑的 Ollama——服主可以在游戏内一个设置界面里
   切换和管理，不需要碰配置文件、不需要重启服务器。
@@ -51,21 +51,13 @@
 ## 技术简介
 
 面向 Minecraft 多人服务器的沉浸式跨语言交流基础设施。核心链路：
-文字聊天拦截 → 空间化听觉判定（距离 + 射线遮挡）→ 动态对话上下文（Conversation）
-→ 可插拔翻译 Provider（OpenAI/Claude/Gemini/DeepL/Kimi/DeepSeek/Ollama）
-→ 客户端空间化字幕（悬浮头顶 / 物品栏上方）→ 游戏内配置界面（ModMenu 集成 +
-按键呼出）。
+文字聊天拦截 → 空间化听觉判定（距离 + 射线遮挡）→ 动态对话上下文（Conversation，
+一个对话组从开始到结束作为完整翻译上下文）→ 可插拔翻译 Provider（OpenAI/Claude/
+Gemini/DeepL/Kimi/DeepSeek/Ollama）→ 空间化分发（近处走聊天栏 / 远处走物品栏上方
+字幕）→ 游戏内配置界面（ModMenu 集成 + 按键呼出）。
 
 目标版本：**Minecraft 1.21.1 · Yarn Mappings 1.21.1+build.3 · Fabric Loader 0.15.11 ·
 Fabric API 0.116.15+1.21.1 · Fabric Loom 1.7.3 · Gradle 8.8 · Java 21**
-
-> **为什么固定在 1.21.1？** 1.21.1 是 1.21.x 系列的早期稳定版本（2024-08
-> 发布），Fabric API 的 `WorldRenderEvents`——本项目用它实现"字幕悬浮在
-> 说话者附近"的效果——在该版本上工作正常。后续 1.21.9/1.21.10 的移植
-> 过程中，因为 Minecraft 原版渲染管线发生了根本性重构，`WorldRenderEvents`
-> 被官方**整体移除**，目前（截至本文写作时）还没有稳定的替代方案。1.21.1
-> 既能保证"贴近说话人显示字幕"这个核心体验能够实现，又拥有最稳定的
-> 1.21.x 模组生态兼容性（大量 1.21.x 模组以 1.21.1 为基线版本）。
 
 > **关于 mappings 的说明**：本项目使用 **Yarn**（不是 Mojang 官方映射）。
 > 如果你看到网上教程用 `net.minecraft.world.entity.Entity` 这类命名，
@@ -138,7 +130,7 @@ Minecraft 源码，便于后续开发调试。
   填写 API Key / 模型名 / API Endpoint，仅 op 可编辑，普通玩家只读查看
 - ✅ 世界词典（专有名词占位替换，保证跨 Provider 翻译一致性）
 - ✅ 客户端自动上报 Minecraft 语言设置作为目标语言
-- ✅ 双模式字幕：VISIBLE（显示在说话者模型旁边、靠近相机的一侧）/ AUDIBLE（物品栏上方，多人堆叠布局）
+- ✅ 双模式空间化分发：VISIBLE（看得见说话者，消息走原版聊天栏）/ AUDIBLE（看不到说话者，消息走物品栏上方 HUD 字幕，多人堆叠布局）
 - ✅ `/mccf` 管理命令（status / provider / dictionary / reload）
 - ✅ API Endpoint 可自定义（接自建反代 / 兼容网关）+ 一键"恢复默认"
 - ✅ 配置界面一键拉取 Provider 可用模型列表
@@ -190,9 +182,9 @@ DeepL（固定引擎无模型概念）和 Mock 不支持，按钮自动置灰。
 ## 三之二、纯客户端模式（服务器没装 MCCF 时）
 
 如果你连的服务器没有安装 MCCF（比如公共服/别人的服），模组没法拦截聊天做
-点对点分发、也没法做距离/遮挡这类需要服务端参与的判定——所有人还是会照常
+空间判定、也没法做距离/遮挡这类需要服务端参与的判定——所有人还是会照常
 收到原版广播的聊天。这种情况下 MCCF 会自动降级为**纯客户端模式**：不做
-空间判定、不渲染悬浮/物品栏字幕，只是把收到的每一条聊天消息在本地翻译成
+空间判定、不渲染物品栏字幕，只是把收到的每一条聊天消息在本地翻译成
 你自己客户端设置的语言，追加显示在聊天栏里（原文照常显示，译文是追加的
 一行，前面带 `⇄` 标记），比如：
 ```
@@ -310,9 +302,8 @@ src/client/java/net/mccf/mod/client/
 ├── chat/ClientOnlyChatTranslator.java  纯客户端模式下的本地聊天翻译：监听收到的聊天消息，
 │                                        异步翻译后追加显示，不做空间判定
 ├── subtitle/
-│   ├── ActiveSubtitle.java           客户端内存态字幕数据
-│   ├── SubtitleManager.java          接收、超时管理、多人去重排序
-│   ├── WorldSubtitleRenderer.java    VISIBLE 模式：说话者模型旁边（靠近相机侧）
+│   ├── ActiveSubtitle.java           客户端内存态字幕数据（仅 AUDIBLE 模式）
+│   ├── SubtitleManager.java          接收、超时管理、多人去重排序（仅 AUDIBLE）
 │   └── HotbarSubtitleRenderer.java   AUDIBLE 模式：物品栏上方堆叠显示
 └── util/LogExporter.java             日志导出逻辑（提取 MCCF 相关行 + 完整日志复制）
 ```
@@ -363,15 +354,6 @@ src/client/java/net/mccf/mod/client/
 - 世界广播、NPC 对话、剧情事件等在设计文档中提到的"未来扩展"尚未实现，
   但整体架构（Provider 可插拔 + Conversation 上下文隔离）是为它们预留的。
 - `network/` 包里有两个未注册使用的死代码类，见"五、目录结构"末尾说明。
-- VISIBLE 模式的字幕位置已于 0.3.0 改为"说话者模型旁边、靠近相机的一侧"
-  （腰部高度，水平偏移），不再是早期版本的"头顶上方一点"。长文本支持自动
-  换行，远距离时有距离衰减。如果后续想进一步做成基于屏幕投影坐标的贴身定位，
-  World 渲染管线在新版本上不稳定，需要单独一轮谨慎处理。
-- **【已知 Bug / 0.4.0 临时绕开】** 上述"说话者旁边"的世界空间字幕在
-  `WorldSubtitleRenderer` 中实测**仍不显示**（早期 alpha 修复无效，根因未定位，
-  候选见"八、更新日志"0.4.0 条目）。0.4.0 起 VISIBLE 模式临时改走原版聊天框
-  （`<名字> 译文` 一行），AUDIBLE 模式不受影响。待根因定位修复后再考虑切回
-  世界空间字幕。
 - **纯客户端模式（`ClientOnlyChatTranslator`）用到的 `ClientReceiveMessageEvents.CHAT`
   事件签名**：此前 README 里标注为"凭印象写、未本地编译验证"的风险点，在
   1.21.1 上经本地编译验证**签名正确**（5 参数：`message, signedMessage, sender, params, receptionTimestamp`），
@@ -382,6 +364,90 @@ src/client/java/net/mccf/mod/client/
 ---
 
 ## 八、更新日志
+
+### 2026-08-02　0.16.1 文档调整：去除"固定在 1.21.1"的版本理由论证
+
+应用户反馈：0.16.0 移除世界空间字幕（WorldRenderEvents）后，升级到更高
+Minecraft 版本的最大技术障碍已经消除，README 里原本为"为什么固定在 1.21.1"
+所做的论证（1.21.x 生态兼容性、WorldRenderEvents 在 1.21.9+ 被移除的版本
+兼容顾虑等）不再需要保留为面向玩家的说明。
+
+**改动**：
+- `README.md`：删除"技术简介"中 `> **为什么固定在 1.21.1？**` 整段引用块，
+  只保留"目标版本：……"这一行事实陈述。mappings 说明段落保留（与版本锁定
+  无关，是 Yarn vs Mojang mapping 的命名差异提醒）。
+- `README_EN.md`："This is Minecraft 1.21.1 only."条目原本附带的整段
+  ecosystem compatibility / WorldRenderEvents 论证一并删除，只保留版本号
+  事实。
+- `gradle.properties`：Fabric Properties 注释从"目标版本固定为 1.21.1 +
+  长篇理由"精简为"1.21.1 仅作为当前发布基线，不作为长期锁定"，如实反映
+  当前状态——升级障碍已消除，未来可更自由地跟进新版本。
+
+纯文档/注释调整，不涉及代码逻辑或构建配置变化，按 9.1 规则升 patch：
+`0.16.0` → `0.16.1`。
+
+### 2026-08-02　0.16.0 移除世界空间字幕（VISIBLE 走聊天栏转正）+ AI 上下文改为完整对话组
+
+本轮改动响应用户两方面反馈：(1) 世界空间字幕（WorldSubtitleRenderer）代码存在
+但实测一直不显示，根因始终未定位，不再作为当前版本功能保留；(2) AI 翻译上下文
+原本有硬截断，希望改为"一个 Conversation 从开始到结束作为完整上下文"。
+
+**1. 移除世界空间字幕，VISIBLE 走聊天栏转正**
+- 删除 `WorldSubtitleRenderer.java` 文件，移除 `MCCFClient` 中
+  `WorldRenderEvents.AFTER_ENTITIES` 的渲染器注册和相关 import。本项目不再依赖
+  `WorldRenderEvents`——那个 API 在 1.21.9+ 因渲染管线重构被移除的版本兼容顾虑
+  随之消除（README "为什么固定在 1.21.1" 段落已更新）。
+- **决策历史**（保留在 `MCCFClient` / `HearingResolver` / `MCCFConfig` 注释里）：
+  早期版本（0.3.0~0.4.0）曾尝试用世界空间渲染把字幕画到说话者模型旁边，但根因
+  始终未定位、实测不显示。0.4.0 起临时把 VISIBLE 改走原版聊天栏作为绕开方案，
+  0.16.0 正式确认这个绕开方案**转正**——VISIBLE 走聊天栏成为正式行为而非临时
+  降级。HearingResolver 仍然区分 VISIBLE/AUDIBLE 两档（距离 + 视线判定），只是
+  VISIBLE 的展示载体从"世界空间悬浮字幕"变成"原版聊天栏"——近处说话走聊天框、
+  远处喊话走物品栏字幕的语义不变。
+- `MCCFConfig.subtitleVisibleRange` 字段**保留不改名**：它承担的是 HearingResolver
+  区分"看得见/听得到"两档的距离阈值职责，与展示载体无关；改名会破坏旧 config.json
+  的向后兼容。字段注释已更新说明这一点。
+- `ActiveSubtitle.Mode` 枚举（VISIBLE/AUDIBLE）和 `mode` 字段移除：删除
+  WorldSubtitleRenderer 后，SubtitleManager 只接收 AUDIBLE 模式的 payload
+  （VISIBLE 在 MCCFClient 接收时就被分流到聊天栏），Mode 枚举成了死代码。
+  `SubtitleManager.onReceive` 不再解析 mode，`HotbarSubtitleRenderer` 不再按
+  mode 过滤。
+- 涉及文件：删除 `WorldSubtitleRenderer.java`；修改 `MCCFClient.java`、
+  `ActiveSubtitle.java`、`SubtitleManager.java`、`HotbarSubtitleRenderer.java`、
+  `HearingResolver.java`、`MCCFConfig.java`。
+
+**2. AI 上下文改为完整对话组（去掉所有条数截断）**
+- 应用户明确要求"一个 Conversation 从开始到结束作为完整上下文"，移除两处截断：
+  - `Conversation.recordMessage`：移除 `MAX_CONTEXT_MESSAGES = 20` 硬截断，
+    整个对话组生命周期内的所有消息都保留作为翻译上下文。
+  - `ChatCompletionsSupport.buildSystemPrompt`：移除 `context.size() - 5` 的
+    最近 5 条截断，所有上下文消息都写入 prompt。
+- 上下文不会无限增长：ConversationManager 的 idle timeout（默认 120 秒无人发言）
+  会在对话组沉寂后整体释放 Conversation，下一次有人发言新建新组。这意味着上下文
+  不会跨对话组泄露，也不会无限累积——长对话期间确实会让 prompt 变长、token 消耗
+  增加，**这是用户知情接受的取舍**（用户在本次需求中明确选择"完全去掉截断"而非
+  软上限方案）。
+- 涉及文件：`Conversation.java`、`ChatCompletionsSupport.java`、
+  `TranslationProvider.java`（接口注释更新）。
+
+**3. 文档同步**
+- README 顶部介绍、技术简介核心链路、"为什么固定在 1.21.1"、"当前功能范围"、
+  "目录结构"、"已知限制"、"9.2.5 版本踩坑"（WorldSubtitleRenderer 条目标注
+  文件已删）均已同步更新。
+- 移除"七、已知限制"中关于 VISIBLE 世界空间字幕不显示的两条 Bug 条目
+  （0.3.0 字幕位置改造 + 0.4.0 临时绕开），这两条已随 WorldSubtitleRenderer
+  删除而彻底解决。
+
+版本号 `0.15.0` → `0.16.0`（按 9.1 规则升 minor：功能移除 + 行为变更 + AI 上下文
+策略调整，均为非破坏性——网络协议字段不变，旧客户端/服务端仍可正常通信）。
+
+**已知取舍（如实记录）**：
+- 完全去掉上下文截断后，超长对话（比如几十分钟不停歇的讨论）的 prompt 会变长、
+  token 消耗增加，可能超出某些 Provider 模型的上下文窗口导致请求失败。这是用户
+  明确选择的方案，没有加软上限兜底——如果未来实测发现这个问题，可以在 Provider
+  层单独加截断，不影响 Conversation / ChatCompletionsSupport 的通用逻辑。
+- `subtitleVisibleRange` 字段名与其实际职责（距离阈值，与展示载体无关）已不完全
+  匹配，但为向后兼容旧 config.json 不改名。字段注释已说明这一点。
 
 ### 2026-07-30　0.15.0 新增：五家 Provider 独立"强制关闭思考"开关 + 新增智谱 AI Provider
 
@@ -1541,7 +1607,7 @@ Minecraft 在玩家**调整游戏窗口大小**时也会对所有当前打开的
   （后者是 1.21.5+ 才改的名字）。升级到 1.21.5+ 时这里要同步改名。`
 - 已记入的版本踩坑（供查阅，代码位置也有对应注释）：
   - `PacketCodecs.BOOL`（1.21.1）↔ `PacketCodecs.BOOLEAN`（1.21.8+）——`RequestConfigPayload.java`
-  - `RenderTickCounter.getTickDelta(boolean)`（1.21.1）↔ `getTickProgress(boolean)`（1.21.8+）——`WorldSubtitleRenderer.java`
+  - `RenderTickCounter.getTickDelta(boolean)`（1.21.1）↔ `getTickProgress(boolean)`（1.21.8+）——原 `WorldSubtitleRenderer.java`（0.16.0 已删除该文件，但这个版本差异知识点保留：未来若重新引入世界空间渲染会再次踩到）
   - `HudRenderCallback.EVENT.register`（1.21.1）↔ `HudElementRegistry.addLast`（1.21.6+）——`MCCFClient.java` / `HotbarSubtitleRenderer.java`
   - `AlwaysSelectedEntryListWidget` 构造器：1.21.1 是 5 参数 `(client, width, height, y, itemHeight)`（第 5 参数即 itemHeight），1.21.8+ 扩为 6 参数 `(client, width, height, y, bottom, itemHeight)`（重新加回 bottom）。**踩坑**：曾误判 1.21.1 第 5 参数为 bottom，把列表高度值传成 itemHeight 导致行高 bug（一句话占满屏），0.7.0 修正——`ModelSelectionScreen.java` / `ChatHistoryScreen.java`
   - `TextFieldWidget.setRenderTextProvider(BiFunction)`（1.21.1）替代已移除的 `setRenderPasswordReveal(boolean)`（1.20.x 及之前）——`MCCFConfigScreen.java` / `ClientOnlyConfigScreen.java`。1.21.1 没有"一行开启密码框"的开关，需自己传一个把字符替换成圆点的 `BiFunction`。

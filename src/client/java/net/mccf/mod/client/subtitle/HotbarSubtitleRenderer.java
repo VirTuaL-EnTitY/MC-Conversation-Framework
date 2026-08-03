@@ -13,8 +13,8 @@ import java.util.List;
  * 渲染 AUDIBLE 模式字幕：显示在屏幕下方、物品栏上方，类似原版辅助字幕
  * （Options > Accessibility > Show Subtitles）的呈现方式。
  *
- * 只管"把字幕画到 HUD 上物品栏上方"，不管 VISIBLE 模式的世界空间渲染（由
- * WorldSubtitleRenderer 负责）、不管字幕生命周期（由 SubtitleManager 负责）。
+ * 只管"把字幕画到 HUD 上物品栏上方"，不管字幕生命周期（由 SubtitleManager 负责）、
+ * 不管 VISIBLE 模式（VISIBLE 走原版聊天栏，由 MCCFClient#addVisibleToChatHud 处理）。
  *
  * 对应"多人字幕"需求：多个说话者同时说话时，按名字排序纵向堆叠显示，
  * 自动避免重叠；每条字幕背景做半透明处理，不遮挡物品栏内容。
@@ -44,8 +44,9 @@ public class HotbarSubtitleRenderer {
 		MinecraftClient client = MinecraftClient.getInstance();
 		if (client.options.hudHidden) return;
 
+		// 0.16.0 起 SubtitleManager 只承载 AUDIBLE 字幕，不再需要按 mode 过滤——
+		// VISIBLE 模式的 payload 在 MCCFClient 接收时就被分流到聊天栏，不进入 SubtitleManager。
 		List<ActiveSubtitle> subtitles = SubtitleManager.getActiveAndPrune().stream()
-				.filter(s -> s.mode() == ActiveSubtitle.Mode.AUDIBLE)
 				.limit(MAX_SUBTITLES)
 				.toList();
 		if (subtitles.isEmpty()) return;

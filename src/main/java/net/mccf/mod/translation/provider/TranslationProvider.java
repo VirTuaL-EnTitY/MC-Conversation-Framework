@@ -54,10 +54,13 @@ public interface TranslationProvider {
 	 * @param sourceText     原始文本（已经过世界词典占位符预处理）
 	 * @param sourceLang     源语言代码（Minecraft locale 格式，如 "zh_cn"）
 	 * @param targetLang     目标语言代码
-	 * @param contextMessages 当前 Conversation 内最近的若干条消息，用于帮助
+	 * @param contextMessages 当前 Conversation 生命周期内的所有消息，用于帮助
 	 *                        Provider 理解上下文语义（代词指代、术语一致性等）。
 	 *                        这个列表严格限定于"当前对话组内、当前仍在场的
 	 *                        参与者产生的消息"，不会包含服务器上其他任何内容。
+	 *                        0.16.0 起不再做条数截断——整个对话组从创建到 idle
+	 *                        timeout 释放之间的所有发言都会传入（应用户明确要求
+	 *                        "一个 Conversation 从开始到结束作为完整上下文"）。
 	 */
 	record TranslationRequest(
 			String sourceText,

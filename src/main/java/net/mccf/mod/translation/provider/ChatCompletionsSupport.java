@@ -41,10 +41,15 @@ public final class ChatCompletionsSupport {
 	}
 
 	/**
-	 * 构造系统提示词：说明翻译任务 + 注入受限的对话上下文（仅限当前 Conversation）。
+	 * 构造系统提示词：说明翻译任务 + 注入当前 Conversation 的完整对话上下文。
 	 *
-	 * 上下文只取最近 5 条：上下文范围已经由 Conversation 在上层按距离/参与者裁剪过，
-	 * 这里再截断是为了控制 prompt 长度（避免 token 爆炸和费用失控），不是为了安全。
+	 * 0.16.0 起不再截断上下文——整个 Conversation 生命周期内的所有消息都会写入
+	 * prompt（应用户明确要求"一个 Conversation 从开始到结束作为完整上下文"）。
+	 * 上下文范围已经由 Conversation 在上层按距离/参与者 + idle timeout 裁剪过，
+	 * 一个对话组从创建到超时释放之间的所有发言都会传到这里。长对话会让 prompt
+	 * 变长、token 消耗增加，这是用户知情接受的取舍；如果未来某家 Provider 的
+	 * 模型上下文窗口太小导致请求失败，可以在 Provider 层单独加截断，不影响这里的
+	 * 通用逻辑。
 	 */
 	public static String buildSystemPrompt(TranslationProvider.TranslationRequest request) {
 		StringBuilder sb = new StringBuilder();
@@ -55,10 +60,9 @@ public final class ChatCompletionsSupport {
 		List<String> context = request.contextMessages();
 		if (context != null && !context.isEmpty()) {
 			sb.append(" Recent conversation context (for tone/pronoun consistency only, do not translate these): ");
-			// 只取最近几条，避免 prompt 过长；上下文本身已经由 Conversation 限定范围。
-			int start = Math.max(0, context.size() - 5);
-			for (int i = start; i < context.size(); i++) {
-				sb.append("\"").append(context.get(i).replace("\"", "'")).append("\" ");
+			// 0.16.0 起不截断，整个 Conversation 的所有上下文都写入——见方法 Javadoc。
+			for (String msg : context) {
+				sb.append("\"").append(msg.replace("\"", "'")).append("\" ");
 			}
 		}
 		return sb.toString();

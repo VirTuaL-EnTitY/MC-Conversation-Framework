@@ -16,10 +16,17 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 判定"谁能听到" / "谁能看到"说话者，是整个空间化系统的地基。
  *
- * 三档结果对应设计文档的空间化字幕规则：
- * - VISIBLE:  在 subtitleVisibleRange 内 且 视线未被方块完全阻挡 -> 字幕悬浮在说话者头顶
- * - AUDIBLE:  在 hearingRange 内，但视线被阻挡或距离超过 visible range -> 字幕显示在屏幕下方
- * - NONE:     超出 hearingRange -> 完全收不到任何字幕/消息
+ * 三档结果对应设计文档的空间化分发规则：
+ * - VISIBLE:  在 subtitleVisibleRange 内 且 视线未被方块完全阻挡 -> 走原版聊天栏
+ *   （近处、看得见说话者的听众收到的消息出现在聊天框里，语义是"我面前的对话"）
+ * - AUDIBLE:  在 hearingRange 内，但视线被阻挡或距离超过 visible range -> 走物品栏上方字幕
+ *   （远处或隔墙的听众收到的是 HUD 字幕，语义是"听得到但看不见的喊话"）
+ * - NONE:     超出 hearingRange -> 完全收不到任何消息
+ *
+ * 决策历史：0.16.0 之前 VISIBLE 档的字幕本应"悬浮在说话者头顶"（由 WorldSubtitleRenderer
+ * 在世界空间渲染），但该渲染器根因始终未定位、实测不显示。0.16.0 起 WorldSubtitleRenderer
+ * 已删除，VISIBLE 档正式改为走原版聊天栏——subtitleVisibleRange 这个阈值仍然保留，因为它
+ * 承担的是"距离 + 视线判定"的职责（区分近处对话/远处喊话），与展示载体无关。
  *
  * 射线检测使用方块碰撞形状判定（不含实体），足以模拟"隔墙听不清、看不见"的效果，
  * 同时避免因遮挡判定过于复杂而拖慢每次聊天消息的处理。

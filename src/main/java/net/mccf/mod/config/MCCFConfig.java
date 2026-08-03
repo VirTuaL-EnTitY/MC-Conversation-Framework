@@ -25,7 +25,16 @@ public class MCCFConfig {
 	private static final Path CONFIG_DIR = FabricLoader.getInstance().getConfigDir().resolve(MCCF.MOD_ID);
 	private static final Path CONFIG_FILE = CONFIG_DIR.resolve("config.json");
 
-	/** 玩家彼此可见字幕（悬浮在说话者头顶）的最大距离，单位：格。 */
+	/**
+	 * "看得见说话者"的距离阈值，单位：格。在此距离内且视线未被方块阻挡的听众归为
+	 * VISIBLE 档（消息走原版聊天栏）；超出此距离但在 hearingRange 内、或视线被阻挡
+	 * 的听众归为 AUDIBLE 档（消息走物品栏上方字幕）。
+	 *
+	 * 字段名沿用历史命名（早期版本 VISIBLE 档的字幕确实悬浮在说话者头顶，由
+	 * WorldSubtitleRenderer 渲染）。0.16.0 起 WorldSubtitleRenderer 已删除、VISIBLE
+	 * 改走聊天栏，但这个阈值本身承担的是 HearingResolver 的距离判定职责，与展示
+	 * 载体无关，故保留不改名——改名会破坏旧 config.json 的向后兼容。
+	 */
 	public double subtitleVisibleRange = 32.0;
 
 	/** 玩家仍可"听到"但看不到说话者的最大距离，单位：格。超出此距离完全收不到消息。 */

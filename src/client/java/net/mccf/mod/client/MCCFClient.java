@@ -6,7 +6,6 @@ import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.mccf.mod.MCCF;
 import net.mccf.mod.client.chat.ClientOnlyChatTranslator;
 import net.mccf.mod.client.config.ClientConfigState;
@@ -14,7 +13,6 @@ import net.mccf.mod.client.config.MCCFConfigScreen;
 import net.mccf.mod.client.mode.ClientOnlyModeManager;
 import net.mccf.mod.client.subtitle.HotbarSubtitleRenderer;
 import net.mccf.mod.client.subtitle.SubtitleManager;
-import net.mccf.mod.client.subtitle.WorldSubtitleRenderer;
 import net.mccf.mod.network.ConfigSnapshotPayload;
 import net.mccf.mod.network.LanguageReportPayload;
 import net.mccf.mod.network.ModelsResultPayload;
@@ -32,20 +30,27 @@ import java.util.List;
  *
  * 职责：
  * 1. 加入服务器时上报本机 Minecraft 语言设置（原则："客户端自动检测语言"）。
- * 2. 接收服务端字幕包，写入 {@link SubtitleManager}。
+ * 2. 接收服务端字幕包，按 displayMode 分流：VISIBLE（看得见说话者）走原版聊天栏、
+ *    AUDIBLE（看不到说话者）走 {@link HotbarSubtitleRenderer} 物品栏上方字幕。
  * 3. 接收服务端配置快照包，写入 {@link ClientConfigState}，供配置界面显示。
- * 4. 注册两套字幕渲染器：
- *    - {@link WorldSubtitleRenderer}：VISIBLE 模式，显示在说话者模型旁边（靠近相机侧）
- *    - {@link HotbarSubtitleRenderer}：AUDIBLE 模式，显示在物品栏上方
+ * 4. 注册 AUDIBLE 模式的 HUD 字幕渲染器（{@link HotbarSubtitleRenderer}）。
  * 5. 注册按键绑定，独立于 ModMenu 呼出配置界面（{@link MCCFConfigScreen}）。
  *
- * 注：目标版本固定在 1.21.1（1.21.x 系列早期稳定版本），因为：
- * - WorldRenderEvents（VISIBLE 模式悬浮字幕依赖的 API）在 1.21.9 的移植中
- *   因原版渲染管线重构被整体移除，目前没有稳定替代方案；1.21.1 及之前的
- *   1.21.x 版本该 API 正常可用。
- * - KeyBinding 的分类参数在 1.21.9 起从字符串改为 KeyBinding.Category 对象，
- *   按键检测方法也从 wasPressed() 改名为 consumeClick()；1.21.1 仍用旧写法
- *   （字符串分类 + wasPressed()），本类按此实现。
+ * 关于 VISIBLE 模式走聊天栏的决策历史：
+ * 早期版本（0.3.0~0.4.0）曾尝试用 WorldRenderEvents.AFTER_ENTITIES 把字幕
+ * 渲染到说话者模型旁边的世界空间里（WorldSubtitleRenderer），但根因始终未定位、
+ * 字幕实测不显示。0.4.0 起临时把 VISIBLE 改走原版聊天栏作为绕开方案；0.16.0
+ * 正式确认这个绕开方案转正——WorldSubtitleRenderer 类已删除，WorldRenderEvents
+ * 不再注册，VISIBLE 走聊天栏成为正式行为而非临时降级。HearingResolver 仍然区分
+ * VISIBLE/AUDIBLE 两档（距离 + 视线判定），只是 VISIBLE 的展示载体从"世界空间
+ * 悬浮字幕"变成"原版聊天栏"——近处说话走聊天框、远处喊话走物品栏字幕的语义不变。
+ *
+ * 注：目标版本固定在 1.21.1（1.21.x 系列早期稳定版本）。KeyBinding 的分类参数在
+ * 1.21.9 起从字符串改为 KeyBinding.Category 对象，按键检测方法也从 wasPressed()
+ * 改名为 consumeClick()；1.21.1 仍用旧写法（字符串分类 + wasPressed()），本类按此实现。
+ * （早期版本还依赖 WorldRenderEvents 实现世界空间字幕，该 API 在 1.21.9+ 因渲染
+ * 管线重构被移除；0.16.0 起本项目不再使用 WorldRenderEvents，这个版本兼容顾虑
+ * 已随之消除。）
  */
 public class MCCFClient implements ClientModInitializer {
 
@@ -65,10 +70,10 @@ public class MCCFClient implements ClientModInitializer {
 		ClientOnlyModeManager.load();
 		ClientOnlyChatTranslator.register();
 
-		WorldSubtitleRenderer worldRenderer = new WorldSubtitleRenderer();
+		// 0.16.0 起 VISIBLE 模式走原版聊天栏（不再有世界空间渲染器），客户端只需要
+		// 注册 AUDIBLE 模式的 HUD 渲染器。WorldRenderEvents.AFTER_ENTITIES 的注册
+		// 已随 WorldSubtitleRenderer 一并移除——见本类 Javadoc 的决策历史说明。
 		HotbarSubtitleRenderer hotbarRenderer = new HotbarSubtitleRenderer();
-
-		WorldRenderEvents.AFTER_ENTITIES.register(worldRenderer::render);
 
 		// 挂载在所有原版 HUD 层之后渲染，确保字幕不被物品栏/生命值等遮挡。
 		// 1.21.1 上用 HudRenderCallback.EVENT（旧 API）；HudElementRegistry 是
@@ -112,13 +117,15 @@ public class MCCFClient implements ClientModInitializer {
 							ClientOnlyChatTranslator.translateAndAppend(sourceText, payload.speakerId().toString());
 						}
 					} else if ("VISIBLE".equals(payload.displayMode())) {
-						// VISIBLE（看得到说话者）临时改走聊天框：WorldSubtitleRenderer 的世界空间
-						// 字幕在"能看见对方"时仍不显示（根因尚未定位，见 WorldSubtitleRenderer 类注释
-						// 与 README "已知问题"），故暂时把这类消息降级回聊天栏。服务端已按距离/视线
-						// 把听众拆成 visible / audibleOnly 两批，只有 visible 的人会收到 VISIBLE 包，
-						// 因此聊天栏里天然只出现"我看得见的那几位"说的话——满足"聊天框内容只能是我
-						// 看到的这几位"的需求。AUDIBLE（看不到）依旧走 SubtitleManager → 物品栏上方
-						// 字幕，保持原时长（2.5~8s）不变。
+						// VISIBLE（看得到说话者）走原版聊天框。这是 0.16.0 起的正式行为——
+						// 早期版本（0.3.0~0.4.0）曾尝试用世界空间渲染器（WorldSubtitleRenderer）
+						// 把字幕画到说话者模型旁边，但根因始终未定位、实测不显示，0.4.0 起临时
+						// 改走聊天框，0.16.0 正式确认这个方案转正（WorldSubtitleRenderer 已删除，
+						// 详见本类 Javadoc 的决策历史）。服务端按距离/视线把听众拆成 visible /
+						// audibleOnly 两批，只有 visible 的人会收到 VISIBLE 包，因此聊天栏里天然
+						// 只出现"我看得见的那几位"说的话——满足"聊天框内容只能是我看到的这几位"
+						// 的需求。AUDIBLE（看不到）依旧走 SubtitleManager → 物品栏上方字幕，
+						// 保持原时长（2.5~8s）不变。
 						//
 						// 是否显示原文：由服务端的 showOriginalTextInChat 开关决定——服务端只有开启
 						// 时才会在 originalText 里填入原文，关闭时这个字段是空字符串（见
