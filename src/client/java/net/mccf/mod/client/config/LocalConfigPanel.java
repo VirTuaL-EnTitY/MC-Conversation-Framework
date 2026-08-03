@@ -176,8 +176,13 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		if (fetchModelsButton != null) {
 			fetchModelsButton.active = tabVisible && supportsModelList;
 		}
+		// 0.16.2：visible 必须 AND tabVisible——见 ServerConfigPanel#refreshFieldsFromState
+		// 同款注释。两个 Panel 用同一套坐标，disableThinkingButton 位置完全重叠，
+		// 非活动标签页的按钮如果 visible=true 会和活动标签页的按钮叠在一起。
+		// LocalConfigPanel.onTabVisibilityChanged 会调本方法，如果不 AND tabVisible，
+		// setVisible(false) 设的 visible 会被这里覆盖回 true（当 Provider 支持思考时）。
 		if (disableThinkingButton != null) {
-			disableThinkingButton.visible = supportsThinking;
+			disableThinkingButton.visible = supportsThinking && tabVisible;
 			disableThinkingButton.active = tabVisible && supportsThinking;
 			disableThinkingButton.setValue(pc.disableThinking);
 		}

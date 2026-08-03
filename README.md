@@ -365,6 +365,65 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
+### 2026-08-02　0.16.2 修复：配置界面"显示原文"开关布局 + 灰色不可选 + 强制关闭思考按钮重复显示
+
+本轮修复三个相关问题：
+
+**1. "显示原文"两个开关从并排一行拆成各自一整行**
+- 应用户反馈：配置界面里"字幕显示原文"（AUDIBLE）和"聊天栏显示原文"
+  （VISIBLE）两个开关原来并排挤在同一行，各占半宽，布局拥挤。
+- `ServerConfigPanel.buildRightPanel`：两个开关从并排一行拆成各自一整行
+  （`panelWidth` 宽度），总控件行数从 7 增至 8。spacing 公式被减数从
+  `140`（= 7×20）改成 `160`（= 8×20），分母从 `6` 改成 `7`。
+
+**2. "显示原文"两个开关改为灰色不可选**
+- 应用户要求：这两个开关在配置界面里设为 `active=false`，仅作只读展示，
+  实际值由 `config/mccf/config.json` 直接修改。
+- `ServerConfigPanel.applyEditability`：两个开关的 `active` 无条件置 `false`。
+
+**3. 修复"强制关闭思考"按钮重复显示（真正根因）**
+- **症状**：用户反馈"出现了第二个强制关闭思考按钮，上面的关、下面的开"。
+- **误判过程**：第一轮我以为是 spacing 公式算错导致控件挤在一起、文字
+  叠加被误看成两个按钮（改了 140→160）。用户明确指出"没在开玩笑，那就
+  是强制关闭思考按钮"后，才定位到真正根因——不是 spacing，而是真的有
+  两个 `disableThinkingButton` 同时显示。
+- **真正根因**：`ServerConfigPanel` 和 `LocalConfigPanel` 用同一套
+  `left/top/right/bottom` 坐标，各自的 `disableThinkingButton` 位置完全
+  重叠。`refreshFieldsFromState` 里 `disableThinkingButton.visible =
+  supportsThinking` 无条件设 visible，覆盖了 `setVisible(false)` 设的
+  不可见状态。当非活动标签页的 Provider 支持思考时，它的
+  `disableThinkingButton` 会错误显示，和活动标签页的同位置按钮叠在一起。
+  `LocalConfigPanel.onTabVisibilityChanged` 会调 `refreshFieldsFromState`，
+  所以切到"服务端配置"标签页时 Local 的按钮会漏出来；两个 Panel 的
+  `disableThinking` 值可能不同，玩家就看到"上面关、下面开"两个按钮。
+- **修复**：两个 Panel 的 `refreshFieldsFromState` 里
+  `disableThinkingButton.visible = supportsThinking && tabVisible`，
+  非活动标签页的按钮永远不可见。
+
+纯 UI 修复，不涉及网络协议或翻译逻辑变化，按 9.1 规则升 patch：
+`0.16.1` → `0.16.2`。
+
+### 2026-08-02　0.16.3 修复：配置界面输入框 placeholder 文字超出输入框宽度
+
+应用户反馈：API Key 输入框的 placeholder"API 密钥（留空则保持当前值不变）"
+有一部分文字超出输入框边界。
+
+**根因**：`apiKeyField` 宽度是 `panelWidth - 44`（比 model/endpoint 输入框
+窄 44px，给 clearApiKeyButton 留位），但它的 placeholder 却是最长的。各语言
+版本长度差异极大——中文约 18 字符、英文约 36 字符，而德语/法语/西班牙语/
+俄语版本长达 50+ 字符，在窄屏或小 GUI 比例下必然超出。`TextFieldWidget`
+在 1.21.1 上渲染 placeholder 时不做 `trimToWidth` 截断，文字直接画到输入框
+外面。endpoint 的 placeholder"默认地址（留空即可）"在德语/法语等语言下
+也有同样问题。
+
+**修复**：简化全部 9 种语言的 `api_key.placeholder` 和 `endpoint.placeholder`，
+去掉冗长的"留空则保持当前值不变"解释，只保留核心提示（如"API 密钥"、
+"默认地址"）。"留空保持当前值"这个行为对用户是直观的，且 `clearApiKeyButton`
+已经区分了"留空保存"和"主动清除"两种操作，不需要在 placeholder 里重复说明。
+
+纯语言文件文案修改，不涉及代码逻辑，按 9.1 规则升 patch：
+`0.16.2` → `0.16.3`。
+
 ### 2026-08-02　0.16.1 文档调整：去除"固定在 1.21.1"的版本理由论证
 
 应用户反馈：0.16.0 移除世界空间字幕（WorldRenderEvents）后，升级到更高

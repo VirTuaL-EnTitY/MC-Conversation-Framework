@@ -103,10 +103,13 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	protected void buildRightPanel(int panelLeft, int panelTop, int panelRight, int panelBottom) {
 		int panelWidth = panelRight - panelLeft;
 		int fieldHeight = 20;
-		// 动态间距：7 行控件（高 20）+ 6 个间距——比之前多了一行"强制关闭思考"
-		// 开关（只在支持思考的 Provider 时显示，见 refreshFieldsFromState），
-		// 分母从 5 改成 6。
-		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 140) / 6));
+		// 动态间距：8 行控件（高 20）+ 7 个间距——"显示原文"两个开关从并排一行
+		// 拆成各自一行后，总行数从 7 增至 8。被减数从 140 改成 160（= 8×20，控件
+		// 总高度），分母从 6 改成 7（间距数 = 行数-1）。0.16.2 首版只改了分母忘了
+		// 改被减数，导致 spacing 计算偏小、控件挤在一起，disableThinkingButton
+		// 和 showOriginalTextButton 的文字视觉上叠在一起，被误看成"第二个强制
+		// 关闭思考按钮"。
+		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 160) / 7));
 		int y = panelTop;
 
 		int apiKeyFieldWidth = panelWidth - 44;
@@ -148,16 +151,21 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 						(button, value) -> onDisableThinkingToggled(button, value)));
 		y += spacing;
 
-		// 两个"显示原文"开关，并排放一行——分别对应 AUDIBLE 字幕（物品栏上方）
+		// 两个"显示原文"开关各自占一整行——分别对应 AUDIBLE 字幕（物品栏上方）
 		// 和 VISIBLE 聊天栏，两者独立控制（见 MCCFConfig 里两个字段各自的注释，
 		// 应用户明确要求分开配置，避免只想让聊天栏更详细却连带影响字幕）。
-		int halfWidthToggle = (panelWidth - 8) / 2;
+		// 早期版本这两个开关并排放在同一行（各占半宽），应用户反馈"变成一行"
+		// 的布局问题，0.16.2 起拆成各自一整行。
+		// 同时应用户要求，这两个开关在配置界面里设为灰色不可选（active=false），
+		// 仅作只读展示当前状态，实际值由配置文件 config/mccf/config.json 直接
+		// 修改——applyEditability 里会无条件置 active=false 覆盖 canEdit 判断。
 		showOriginalTextButton = own(net.minecraft.client.gui.widget.CyclingButtonWidget.onOffBuilder(state.showOriginalText)
-				.build(panelLeft, y, halfWidthToggle, fieldHeight,
+				.build(panelLeft, y, panelWidth, fieldHeight,
 						Text.translatable("mccf.config.show_original_audible"),
 						(button, value) -> state.showOriginalText = value));
+		y += spacing;
 		showOriginalTextInChatButton = own(net.minecraft.client.gui.widget.CyclingButtonWidget.onOffBuilder(state.showOriginalTextInChat)
-				.build(panelLeft + halfWidthToggle + 8, y, halfWidthToggle, fieldHeight,
+				.build(panelLeft, y, panelWidth, fieldHeight,
 						Text.translatable("mccf.config.show_original_chat"),
 						(button, value) -> state.showOriginalTextInChat = value));
 		y += spacing;
@@ -220,9 +228,16 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		// "强制关闭思考"开关：只在当前查看的 Provider 支持这个能力时可见——
 		// 切换 Provider 时（而不只是收到快照时）也要同步，因为玩家在界面里
 		// 点左侧列表切换查看的 Provider 是最常见的触发这个刷新的方式。
+		// 0.16.2：visible 必须 AND tabVisible——两个 Panel（ServerConfigPanel
+		// 和 LocalConfigPanel）用同一套 left/top/right/bottom 坐标，各自的
+		// disableThinkingButton 位置完全重叠。如果这里只按 supportsThinking
+		// 设 visible，非活动标签页的按钮也会显示出来，和活动标签页的同位置
+		// 按钮叠在一起，玩家就会看到"两个强制关闭思考按钮"（一个是 Server
+		// 的、一个是 Local 的，值还可能不同）。setVisible(false) 设的 visible
+		// 会被这里覆盖，所以必须显式 AND tabVisible 才安全。
 		if (disableThinkingButton != null) {
 			boolean supportsThinking = ClientConfigState.THINKING_CAPABLE_PROVIDERS.contains(selectedProvider);
-			disableThinkingButton.visible = supportsThinking;
+			disableThinkingButton.visible = supportsThinking && tabVisible;
 			disableThinkingButton.setValue(pc.disableThinking);
 		}
 	}
@@ -238,8 +253,12 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		fetchModelsButton.active = tabVisible && state.canEdit && supportsModelList;
 		clearApiKeyButton.active = tabVisible && state.canEdit && !isMock;
 		saveButton.active = tabVisible && state.canEdit;
-		if (showOriginalTextButton != null) showOriginalTextButton.active = tabVisible && state.canEdit;
-		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.active = tabVisible && state.canEdit;
+		// "显示原文"两个开关应用户要求设为灰色不可选——无论 op 与否、无论
+		// 标签页是否可见，都不能在界面里切换，仅作只读展示。实际值由
+		// config/mccf/config.json 直接修改。这里无条件置 false 覆盖 canEdit
+		// 判断（其它控件仍然走 tabVisible && canEdit 的常规逻辑）。
+		if (showOriginalTextButton != null) showOriginalTextButton.active = false;
+		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.active = false;
 		if (disableThinkingButton != null) {
 			disableThinkingButton.active = tabVisible && state.canEdit
 					&& ClientConfigState.THINKING_CAPABLE_PROVIDERS.contains(selectedProvider);
