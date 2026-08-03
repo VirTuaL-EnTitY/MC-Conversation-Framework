@@ -310,13 +310,12 @@ src/client/java/net/mccf/mod/client/
 ```
 
 **关于 `network/` 包**：目前实际被 `MCCF.java` / `MCCFClient.java` 注册使用的网络包是
-`SubtitlePayload`、`LanguageReportPayload`、`RequestConfigPayload`、
-`ConfigSnapshotPayload`、`UpdateConfigPayload`、`RequestModelsPayload`、
-`ModelsResultPayload` 共 7 个。包内还有 `RequestModelListPayload` /
-`ModelListResponsePayload` 两个类——审查代码时发现它们没有被任何地方注册或引用，
-应该是"获取模型"功能早期迭代时留下的死代码（后来改用了
-`RequestModelsPayload`/`ModelsResultPayload` 这条路径）。这两个文件目前**不影响
-运行**，只是冗余，我没有主动删除，如果你确认不需要保留可以告诉我直接清掉。
+`SubtitlePayload`、`ConversationRosterPayload`、`LanguageReportPayload`、
+`RequestConfigPayload`、`ConfigSnapshotPayload`、`UpdateConfigPayload`、
+`RequestModelsPayload`、`ModelsResultPayload`、`ModePreferencePayload` 共 9 个。
+
+（早期版本里还有 `RequestModelListPayload` / `ModelListResponsePayload` 两个类，
+是"获取模型"功能早期迭代时留下的死代码，1.0.0 已删除清理。）
 
 ---
 
@@ -331,7 +330,8 @@ src/client/java/net/mccf/mod/client/
   "conversationIdleTimeoutSeconds": 120,
   "enableOcclusionCheck": true,
   "activeProvider": "mock",
-  "showOriginalText": true
+  "showOriginalText": true,
+  "showOriginalTextInChat": false
 }
 ```
 
@@ -354,7 +354,7 @@ src/client/java/net/mccf/mod/client/
   `ConversationManager.recordUtterance` 里加更细的判定逻辑。
 - 世界广播、NPC 对话、剧情事件等在设计文档中提到的"未来扩展"尚未实现，
   但整体架构（Provider 可插拔 + Conversation 上下文隔离）是为它们预留的。
-- `network/` 包里有两个未注册使用的死代码类，见"五、目录结构"末尾说明。
+- ~~`network/` 包里有两个未注册使用的死代码类~~（1.0.0 已删除清理，见"五、目录结构"末尾说明）。
 - **纯客户端模式（`ClientOnlyChatTranslator`）用到的 `ClientReceiveMessageEvents.CHAT`
   事件签名**：此前 README 里标注为"凭印象写、未本地编译验证"的风险点，在
   1.21.1 上经本地编译验证**签名正确**（5 参数：`message, signedMessage, sender, params, receptionTimestamp`），
@@ -403,6 +403,53 @@ src/client/java/net/mccf/mod/client/
 
 纯 UI 修复，不涉及网络协议或翻译逻辑变化，按 9.1 规则升 patch：
 `0.16.1` → `0.16.2`。
+
+### 2026-08-02　1.0.0 首个正式版：修复 reload 遗漏 + 清理死代码 + 版本号转正
+
+**版本号从 0.x.x 跳到 1.0.0**——按语义化版本规则，1.0.0 的含义是"第一个
+公开稳定版本"，0.x.x 阶段表示"还在早期开发、可能随时变"。本项目经过 0.3.0~
+0.16.4 的迭代，核心功能（空间化翻译、Conversation 上下文、Provider 可插拔、
+纯客户端模式、聊天历史记录、9 种语言本地化）已经稳定，具备 1.0.0 发布资格。
+
+发布前做了全项目扫描（死代码 / TODO 标记 / 异常处理 / 配置一致性 / 语言文件
+完整性 / 网络包完整性），发现 1 个阻塞 bug + 2 个死代码类，本轮全部修复。
+
+**1. 修复阻塞 bug：`MCCF.reload()` 漏掉 `showOriginalTextInChat` 字段**
+- `showOriginalTextInChat` 是 0.12.0 新增的字段，当时 reload 漏了这一行，
+  导致 `/mccf reload` 无法重载这个配置项——管理员改完 `config.json` 跑
+  reload 不生效，必须重启服务器。这违反了 reload 命令的契约（"完整重载"）。
+- 修复：在 reload 的字段拷贝列表里补上 `config.showOriginalTextInChat =
+  fresh.showOriginalTextInChat;`。
+- 教训记入注释：新增配置字段时必须同步更新 reload 的拷贝列表，否则会出现
+  "改了不生效"的隐蔽 bug。
+
+**2. 清理 2 个死代码网络包类**
+- 删除 `RequestModelListPayload.java` 和 `ModelListResponsePayload.java`——
+  这两个类是"获取模型"功能早期迭代时留下的死代码（后来改用了
+  `RequestModelsPayload`/`ModelsResultPayload` 这条路径），从未被
+  `MCCF.java` / `MCCFClient.java` 注册使用。`ModelListResponsePayload`
+  内部还自带了 70 行手写 JSON 解析工具方法，全部是死代码。
+- README 第五节"目录结构"末尾的死代码说明同步更新：网络包数量从 7 改成 9
+  （0.3.0 新增 `ModePreferencePayload`、0.12.0 新增 `ConversationRosterPayload`
+  之前没同步），死代码条目标注为"1.0.0 已删除清理"。
+
+**3. README 配置示例补上 `showOriginalTextInChat` 字段**
+- 第六节 `config/mccf/config.json` 示例原本缺这个字段（0.12.0 新增时没同步
+  到文档），本次补上 `"showOriginalTextInChat": false`。
+
+**4. README 已知限制章节同步更新**
+- "network/ 包里有两个未注册使用的死代码类"条目标注为已删除清理。
+
+**扫描结论（除上述修复项外，其他全部通过）**：
+- 无任何 TODO/FIXME/XXX/HACK 标记残留
+- 无空 catch 块、无吞异常、所有 future 都有 `.exceptionally` 处理
+- 9 种语言文件 key 完全一致（每个都是 102 个 key）
+- 异常处理完善，失败路径都有日志
+- 已知限制项都是合理的功能边界（STT 未实现、字幕时长未可配置等），不是缺陷
+- 硬编码值都有详细注释论证（缓存 TTL、限流阈值、环形缓冲容量等）
+
+版本号 `0.16.4` → `1.0.0`（按 9.1 规则升 major：从 0.x.x 早期开发阶段
+进入 1.x.x 正式稳定阶段，是语义化版本里 1.0.0 的标准用法）。
 
 ### 2026-08-02　0.16.4 调整：GitHub Release 改为源码 Release + 新增一键发版脚本
 
