@@ -1,13 +1,19 @@
 name: Build & Release
 
 # 触发策略：
-# - push 到 main：只编译 + 跑测试，验证代码没坏，不发布任何东西。这样每次日常
-#   提交都能立刻知道有没有编译错误，但不会产生一堆无意义的 Release。
-# - push 一个 v*.*.* 格式的 tag（例如 v0.8.0）：编译 + 跑测试 + 打包 + 自动创建
-#   GitHub Release 并把 jar 作为附件传上去，Release 描述自动从 README.md 的
-#   更新日志里提取对应版本号的那一段。
-# - 也支持手动触发（workflow_dispatch），方便调试 workflow 本身而不需要真的打
-#   一个 tag（手动触发时只跑编译+测试，不发布，逻辑同 push 到 main）。
+# - push 到 main：只编译，验证代码没坏，不发布任何东西。这样每次日常提交都能
+#   立刻知道有没有编译错误，但不会产生一堆无意义的 Release。
+# - push 一个 v*.*.* 格式的 tag（例如 v0.16.4）：编译验证 + 自动创建 GitHub
+#   Release。Release 里只有源码（GitHub 自动生成的 source code zip/tar）+
+#   从 README.md 更新日志提取的 Release Notes，**不含编译好的 jar**——jar
+#   请从 Modrinth 下载。这样 GitHub Release 纯粹是版本记录 + changelog，
+#   不会和 Modrinth 上的 jar 产生"两边版本不同步"的问题。
+# - 也支持手动触发（workflow_dispatch），方便调试 workflow 本身而不需要真的
+#   打一个 tag（手动触发时只跑编译，不发布，逻辑同 push 到 main）。
+#
+# 0.16.4 起改为源码 Release（不再上传 jar）。早期版本（0.8.0~0.16.3）的
+# workflow 会编译并把 jar 作为 Release 附件上传，那批旧 Release 里仍然有
+# 历史版本的 jar，但新版本不再这么做——jar 的发布渠道统一收敛到 Modrinth。
 on:
   push:
     branches: [main]
@@ -25,10 +31,6 @@ jobs:
   build:
     name: Build & Test
     runs-on: ubuntu-latest
-    # 后续 release job 需要用到这里编译出的 jar，用 outputs 传递具体文件名
-    # （版本号是动态的，job 之间不能假设文件名，必须显式传递）。
-    outputs:
-      jar-name: ${{ steps.locate-jar.outputs.jar-name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,11 +55,12 @@ jobs:
       - name: Build with Gradle
         run: gradle build --stacktrace
 
-      - name: Locate built jar
-        id: locate-jar
-        # remapJar 产物命名为 <archives_base_name>-<mod_version>.jar（不含
-        # -dev/-sources 后缀），见 build.gradle 的 archivesName 配置。用
-        # gradle.properties 里的实际值拼接，不猜测/硬编码版本号。
+      # 定位编译产物并验证它确实存在——这是编译验证的一部分（确认 build
+      # 真的产出了 jar，而不只是"没报错"）。0.16.4 起不再把 jar 上传到
+      # Release，但这个检查仍然保留，因为它能在"编译看似成功但产物没生成"
+      # 的边缘情况下（比如 build.gradle 的 archivesName 配置错了）及时
+      # 暴露问题。
+      - name: Verify built jar exists
         run: |
           BASE_NAME=$(grep '^archives_base_name=' gradle.properties | cut -d= -f2)
           MOD_VERSION=$(grep '^mod_version=' gradle.properties | cut -d= -f2)
@@ -67,15 +70,7 @@ jobs:
             ls -la build/libs/
             exit 1
           fi
-          echo "jar-name=${JAR_NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.locate-jar.outputs.jar-name }}
-          path: build/libs/${{ steps.locate-jar.outputs.jar-name }}
-          if-no-files-found: error
-          retention-days: 14
+          echo "编译验证通过：build/libs/${JAR_NAME} 已生成。"
 
   release:
     name: Create GitHub Release
@@ -90,15 +85,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.build.outputs.jar-name }}
-          path: build/libs
-
       - name: Extract version from tag
         id: version
-        # tag 形如 refs/tags/v0.8.0 -> 0.8.0（去掉 refs/tags/v 前缀）
+        # tag 形如 refs/tags/v0.16.4 -> 0.16.4（去掉 refs/tags/v 前缀）
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
@@ -131,9 +120,13 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: MCCF ${{ steps.version.outputs.tag }}
           body_path: changelog_body.md
-          files: build/libs/${{ needs.build.outputs.jar-name }}
+          # 0.16.4 起 Release 不再附带 jar——GitHub 会自动生成 source code
+          # (zip/tar) 作为附件，加上这里的 changelog body 就够了。编译好的
+          # jar 请从 Modrinth 下载。这样 GitHub Release 纯粹是版本记录 +
+          # changelog，不会和 Modrinth 上的 jar 产生"两边版本不同步"的问题。
+          # 不传 files 参数，softprops/action-gh-release 会只创建 Release
+          # 本身，GitHub 随后自动附上 source code archives。
           # 版本号里带 -alpha/-beta/-rc 等后缀的 tag 自动标记为预发布；
-          # 纯 x.y.z 格式（当前项目一直是这种）标记为正式发布。目前项目还没有
-          # 用过预发布后缀，加这个判断是为未来留的扩展空间，不影响现状。
+          # 纯 x.y.z 格式（当前项目一直是这种）标记为正式发布。
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           draft: false

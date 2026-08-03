@@ -29,11 +29,12 @@
 
 ## 怎么使用？
 
-1. **下载**：去 [GitHub Release](../../releases/latest) 下载最新的 `.jar` 文件
-   （或者在 Modrinth 上搜索本模组）。
+1. **下载**：去 [Modrinth](https://modrinth.com/mod/mc-conversation-framework)
+   下载最新的 `.jar` 文件。（GitHub Release 只提供源码和更新日志，不含编译好
+   的 jar——jar 的发布渠道统一在 Modrinth。）
 2. **安装**：把下载的 `.jar` 放进 Minecraft 的 `mods` 文件夹。
    - 如果你是**服主**：服务器和你自己的客户端都需要装，才能获得完整的"空间化翻译"
-     体验（谁能听到谁听不到、字幕悬浮位置等）。
+     体验（谁能听到谁听不到、近处走聊天栏 / 远处走物品栏字幕等）。
    - 如果你只是**普通玩家**、连的服务器没装这个模组：你自己单独装客户端也能用——
      会自动切换成"纯客户端模式"，本地把聊天栏文字翻译给你自己看，见下方说明。
 3. **同时装好 [Fabric API](https://modrinth.com/mod/fabric-api)**（必需）和
@@ -402,6 +403,41 @@ src/client/java/net/mccf/mod/client/
 
 纯 UI 修复，不涉及网络协议或翻译逻辑变化，按 9.1 规则升 patch：
 `0.16.1` → `0.16.2`。
+
+### 2026-08-02　0.16.4 调整：GitHub Release 改为源码 Release + 新增一键发版脚本
+
+**1. GitHub Release 不再附带 jar，jar 发布渠道统一收敛到 Modrinth**
+
+应用户需求：GitHub Release 改为只包含源码（GitHub 自动生成的 zip/tar）+
+从 README 更新日志提取的 Release Notes，不再上传编译好的 jar。
+
+- `.github/workflows/release.yml`：`build` job 仍然跑编译验证（确认代码能
+  编译通过 + jar 产物确实生成），但不再上传 artifact；`release` job 去掉
+  `download-artifact` 步骤和 `Create Release` 的 `files` 参数——GitHub 会
+  自动附上 source code archives。
+- 这样 GitHub Release 纯粹是版本记录 + changelog，不会和 Modrinth 上的
+  jar 产生"两边版本不同步"的问题。早期版本（0.8.0~0.16.3）的旧 Release
+  里仍然有历史版本的 jar，新版本不再这么做。
+- README.md / README_EN.md 下载说明同步更新：主渠道改为 Modrinth，
+  GitHub Release 只提供源码和更新日志。
+
+**2. 新增 `release.py` 一键发版脚本**
+
+- 从 `gradle.properties` 读取当前 `mod_version`，自动打 `v*.*.*` tag 并
+  push 到远程，触发 GitHub Actions 创建源码 Release。
+- 前置检查：工作区干净（防止改一半代码就发版）、tag 不存在（防止重复发），
+  当前分支已推到远程。
+- 支持 `--check` dry-run 模式。
+- 不自动 bump 版本号、不自动 commit——发版是"确认这版可以发了"的显式
+  动作，版本号由用户在开发过程中按 9.1 规则手动维护。
+
+**3. 顺手修复 README 下载说明里"字幕悬浮位置"的过期描述**
+
+- README.md"怎么使用"章节里"字幕悬浮位置等"是 0.16.0 移除世界空间字幕
+  前的旧描述，本次顺手改成"近处走聊天栏 / 远处走物品栏字幕等"。
+
+版本号 `0.16.3` → `0.16.4`（按 9.1 规则升 patch：CI/发布流程调整 + 脚本
+新增 + 文档同步，不涉及模组运行时逻辑变化）。
 
 ### 2026-08-02　0.16.3 修复：配置界面输入框 placeholder 文字超出输入框宽度
 
