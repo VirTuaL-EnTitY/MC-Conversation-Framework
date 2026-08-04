@@ -30,8 +30,9 @@
 ## 怎么使用？
 
 1. **下载**：去 [Modrinth](https://modrinth.com/mod/mc-conversation-framework)
-   下载最新的 `.jar` 文件。（GitHub Release 只提供源码和更新日志，不含编译好
-   的 jar——jar 的发布渠道统一在 Modrinth。）
+   或 [GitHub Releases](../../releases) 下载最新的 `.jar` 文件。（两个渠道
+   都提供编译好的 jar，Modrinth 是主渠道；GitHub Releases 还额外提供
+   sources jar 供开发者调试用。）
 2. **安装**：把下载的 `.jar` 放进 Minecraft 的 `mods` 文件夹。
    - 如果你是**服主**：服务器和你自己的客户端都需要装，才能获得完整的"空间化翻译"
      体验（谁能听到谁听不到、近处走聊天栏 / 远处走物品栏字幕等）。
@@ -366,43 +367,44 @@ src/client/java/net/mccf/mod/client/
 
 ## 八、更新日志
 
-### 2026-08-02　0.16.2 修复：配置界面"显示原文"开关布局 + 灰色不可选 + 强制关闭思考按钮重复显示
+### 2026-08-03　1.1.0 调整：发布工作流改为纯手动触发 + GitHub Release 恢复附带 jar 和 sources jar
 
-本轮修复三个相关问题：
+本轮改动重写 CI/发布流程，响应用户要求"改成手动运行，手动运行后就编译打包，
+自动创建 GitHub Release，包含源码、编译好的 JAR 和 Jar-sources"。
 
-**1. "显示原文"两个开关从并排一行拆成各自一整行**
-- 应用户反馈：配置界面里"字幕显示原文"（AUDIBLE）和"聊天栏显示原文"
-  （VISIBLE）两个开关原来并排挤在同一行，各占半宽，布局拥挤。
-- `ServerConfigPanel.buildRightPanel`：两个开关从并排一行拆成各自一整行
-  （`panelWidth` 宽度），总控件行数从 7 增至 8。spacing 公式被减数从
-  `140`（= 7×20）改成 `160`（= 8×20），分母从 `6` 改成 `7`。
+**1. workflow 改为纯 workflow_dispatch 手动触发**
+- `.github/workflows/release.yml`：去掉了 push 到 main 的编译验证触发和
+  push tag 的自动发布触发——发版是"确认这版可以发了"的显式动作，应该由人在
+  GitHub Actions 界面手动点 "Run workflow" 执行，避免误触发产生无意义的
+  Release 或在代码改一半时意外触发编译验证。
+- 手动触发后的完整流程：build job 编译 + 跑测试 + 验证 jar 和 sources jar
+  都已生成并上传为 artifact；release job 下载 artifact、从 gradle.properties
+  读版本号、检查对应 v*.*.* tag 不存在（防重复发布）、从 README 提取
+  Release Notes、创建 GitHub Release 并自动打 tag、上传 jar + sources jar。
+- tag 由 workflow 在创建 Release 时自动创建（softprops/action-gh-release 的
+  tag_name 参数指定，tag 不存在时在当前 commit 上自动创建），不需要本地
+  手动打 tag。
 
-**2. "显示原文"两个开关改为灰色不可选**
-- 应用户要求：这两个开关在配置界面里设为 `active=false`，仅作只读展示，
-  实际值由 `config/mccf/config.json` 直接修改。
-- `ServerConfigPanel.applyEditability`：两个开关的 `active` 无条件置 `false`。
+**2. GitHub Release 恢复附带 jar 和 sources jar**
+- 0.16.4 起曾改为"GitHub Release 只含源码，jar 统一走 Modrinth"。1.1.0 改回
+  GitHub Release 也带 jar + sources jar，方便玩家多渠道下载。Modrinth 仍由
+  作者手动上传作为主渠道，两个渠道都有 jar。
+- sources jar 来自 build.gradle 已有的 `withSourcesJar()` 配置，供开发者在
+  IDE 里查看源码 / 调试反编译用。build job 新增对 sources jar 的存在性校验，
+  在"编译看似成功但产物没生成"的边缘情况下能及时暴露问题。
 
-**3. 修复"强制关闭思考"按钮重复显示（真正根因）**
-- **症状**：用户反馈"出现了第二个强制关闭思考按钮，上面的关、下面的开"。
-- **误判过程**：第一轮我以为是 spacing 公式算错导致控件挤在一起、文字
-  叠加被误看成两个按钮（改了 140→160）。用户明确指出"没在开玩笑，那就
-  是强制关闭思考按钮"后，才定位到真正根因——不是 spacing，而是真的有
-  两个 `disableThinkingButton` 同时显示。
-- **真正根因**：`ServerConfigPanel` 和 `LocalConfigPanel` 用同一套
-  `left/top/right/bottom` 坐标，各自的 `disableThinkingButton` 位置完全
-  重叠。`refreshFieldsFromState` 里 `disableThinkingButton.visible =
-  supportsThinking` 无条件设 visible，覆盖了 `setVisible(false)` 设的
-  不可见状态。当非活动标签页的 Provider 支持思考时，它的
-  `disableThinkingButton` 会错误显示，和活动标签页的同位置按钮叠在一起。
-  `LocalConfigPanel.onTabVisibilityChanged` 会调 `refreshFieldsFromState`，
-  所以切到"服务端配置"标签页时 Local 的按钮会漏出来；两个 Panel 的
-  `disableThinking` 值可能不同，玩家就看到"上面关、下面开"两个按钮。
-- **修复**：两个 Panel 的 `refreshFieldsFromState` 里
-  `disableThinkingButton.visible = supportsThinking && tabVisible`，
-  非活动标签页的按钮永远不可见。
+**3. 删除 release.py 脚本**
+- 0.16.4 引入的 `release.py`（自动打 tag + push 触发 workflow）不再需要——
+  workflow 改为手动触发后，版本号和 tag 都由 workflow 从 gradle.properties
+  读取并自动创建，本地不再需要打 tag 脚本。发版流程从"本地跑脚本打 tag"
+  简化为"去 GitHub Actions 网页点 Run workflow"。
 
-纯 UI 修复，不涉及网络协议或翻译逻辑变化，按 9.1 规则升 patch：
-`0.16.1` → `0.16.2`。
+**4. README 下载说明同步更新**
+- "怎么使用"章节：GitHub Release 不再标注为"只提供源码"，改为与 Modrinth
+  并列的下载渠道（两个渠道都提供 jar，Modrinth 是主渠道）。
+
+版本号 `1.0.0` → `1.1.0`（按 9.1 规则升 minor：CI/发布流程重大调整，不涉及
+模组运行时逻辑变化）。
 
 ### 2026-08-02　1.0.0 首个正式版：修复 reload 遗漏 + 清理死代码 + 版本号转正
 
@@ -506,6 +508,44 @@ src/client/java/net/mccf/mod/client/
 
 纯语言文件文案修改，不涉及代码逻辑，按 9.1 规则升 patch：
 `0.16.2` → `0.16.3`。
+
+### 2026-08-02　0.16.2 修复：配置界面"显示原文"开关布局 + 灰色不可选 + 强制关闭思考按钮重复显示
+
+本轮修复三个相关问题：
+
+**1. "显示原文"两个开关从并排一行拆成各自一整行**
+- 应用户反馈：配置界面里"字幕显示原文"（AUDIBLE）和"聊天栏显示原文"
+  （VISIBLE）两个开关原来并排挤在同一行，各占半宽，布局拥挤。
+- `ServerConfigPanel.buildRightPanel`：两个开关从并排一行拆成各自一整行
+  （`panelWidth` 宽度），总控件行数从 7 增至 8。spacing 公式被减数从
+  `140`（= 7×20）改成 `160`（= 8×20），分母从 `6` 改成 `7`。
+
+**2. "显示原文"两个开关改为灰色不可选**
+- 应用户要求：这两个开关在配置界面里设为 `active=false`，仅作只读展示，
+  实际值由 `config/mccf/config.json` 直接修改。
+- `ServerConfigPanel.applyEditability`：两个开关的 `active` 无条件置 `false`。
+
+**3. 修复"强制关闭思考"按钮重复显示（真正根因）**
+- **症状**：用户反馈"出现了第二个强制关闭思考按钮，上面的关、下面的开"。
+- **误判过程**：第一轮我以为是 spacing 公式算错导致控件挤在一起、文字
+  叠加被误看成两个按钮（改了 140→160）。用户明确指出"没在开玩笑，那就
+  是强制关闭思考按钮"后，才定位到真正根因——不是 spacing，而是真的有
+  两个 `disableThinkingButton` 同时显示。
+- **真正根因**：`ServerConfigPanel` 和 `LocalConfigPanel` 用同一套
+  `left/top/right/bottom` 坐标，各自的 `disableThinkingButton` 位置完全
+  重叠。`refreshFieldsFromState` 里 `disableThinkingButton.visible =
+  supportsThinking` 无条件设 visible，覆盖了 `setVisible(false)` 设的
+  不可见状态。当非活动标签页的 Provider 支持思考时，它的
+  `disableThinkingButton` 会错误显示，和活动标签页的同位置按钮叠在一起。
+  `LocalConfigPanel.onTabVisibilityChanged` 会调 `refreshFieldsFromState`，
+  所以切到"服务端配置"标签页时 Local 的按钮会漏出来；两个 Panel 的
+  `disableThinking` 值可能不同，玩家就看到"上面关、下面开"两个按钮。
+- **修复**：两个 Panel 的 `refreshFieldsFromState` 里
+  `disableThinkingButton.visible = supportsThinking && tabVisible`，
+  非活动标签页的按钮永远不可见。
+
+纯 UI 修复，不涉及网络协议或翻译逻辑变化，按 9.1 规则升 patch：
+`0.16.1` → `0.16.2`。
 
 ### 2026-08-02　0.16.1 文档调整：去除"固定在 1.21.1"的版本理由论证
 

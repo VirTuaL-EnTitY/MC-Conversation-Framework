@@ -42,9 +42,10 @@ in-person talking:
 ## How do I use it?
 
 1. **Download** the latest `.jar` from
-   [Modrinth](https://modrinth.com/mod/mc-conversation-framework). (GitHub
-   Releases only contain source code and changelog — compiled jars are
-   distributed exclusively via Modrinth.)
+   [Modrinth](https://modrinth.com/mod/mc-conversation-framework) or
+   [GitHub Releases](../../releases). (Both channels provide compiled jars;
+   Modrinth is the primary channel. GitHub Releases also provides a
+   sources jar for developers.)
 2. **Install** by dropping the `.jar` into your Minecraft `mods` folder.
    - If you're a **server owner**: install it on both the server and your
      own client to get the full "spatial translation" experience (who can
