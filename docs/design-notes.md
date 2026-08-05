@@ -7,6 +7,28 @@
 
 ---
 
+## 1.1.4　修复 onSnapshotUpdated 重置 selectedProvider + 自己说话字幕不显译文 + 历史记录显示译文开关 + 大标题样式
+
+**根因分析 - onSnapshotUpdated 重置 selectedProvider**：1.1.3 的 init() 重建保留 selectedProvider 修复（`preservedSelectedProvider`）只解决了一半。真正的根因是 `ServerConfigPanel` 构造函数调用 `requestSnapshot()` 发配置请求，新 panel 创建后服务端回 ConfigSnapshotPayload 触发 `onSnapshotUpdated()`，里面 `selectedProvider = state.activeProvider` 把保留的选中状态又重置了。
+
+完整时序：玩家选 B → 点获取模型 → ModelSelectionScreen → 点取消 → init() 重建（保留 B ✓）→ 新 panel 构造函数发 requestSnapshot() → 服务端回快照 → onSnapshotUpdated() → **selectedProvider = activeProvider = A** ← 这里丢的。
+
+**为什么删除 onSnapshotUpdated 里的重置行是安全的**：
+- 首次打开：selectedProvider 通过 `initialSelectedProvider() = activeProvider` 初始化，不需要这里再设
+- init() 重建：selectedProvider 通过 `preservedSelectedProvider` 保留，不需要这里覆盖
+- 保存后：onSave 把 selectedProvider 设为 pendingActiveProvider，保存后 activeProvider = selectedProvider，不需要这里重置
+- 别的管理员改了 activeProvider：玩家保留当前查看的 Provider 不被打断——这是更好的行为
+
+唯一的行为变化是"管理员改配置后选中不跟随"——但不打断玩家正在查看的 Provider 是合理的。
+
+**为什么自己说话字幕不显示译文行**：自己说话时 `originalText == translatedText`（服务端不翻译自己说的话，sourceLang == targetLang）。在 showOriginal=true 时显示 "名字: 原文" + "⇄ 译文"——但译文就是原文，"⇄ 译文"行暗示"自己说的话需要翻译"。用户反馈这很奇怪，自己显然懂自己说了什么。修复：HotbarSubtitleRenderer 判断 `speakerId == client.player.uuid`，isSelf 时只显示 "名字: 原文" 一行。
+
+**为什么大标题用 scale 1.3x 而不是更大的 itemHeight**：1.21.1 的 `AlwaysSelectedEntryListWidget` 的 itemHeight 是列表级的，不支持每条目自定义高度（1.21.8 才引入）。用 `context.getMatrices().scale(1.3f, 1.3f, 1.0f)` 在 render 里放大文字是唯一不破坏列表布局的方式。scale 后坐标要除以 scale 因子才能落在正确位置。
+
+**为什么 GroupTitleWidget 和 SystemEventWidget 的 mouseClicked 返回 false**：AlwaysSelectedEntryListWidget 的 entry 默认可被点击选中。GroupTitleWidget 是分组标题，SystemEventWidget 是"开启了一段新对话"这种旁白提示——它们是纯展示元素，选中没有意义。重写 mouseClicked 返回 false 让点击穿透，不会被选中。
+
+---
+
 ## 1.1.3　修复切换 Provider 丢失更改 + 强制关闭思考点"是"不生效 + 命令本土化
 
 **根因分析 - 两个 bug 同根因**：用户报告"切换 Provider 后获取模型列表，回来 Provider 切回 DeepSeek 丢失更改"和"强制关闭思考警告屏幕点'是'后仍显示关"。表面是两个 bug，根因相同：`MCCFConfigScreen.init()` 在 `ModelSelectionScreen`/`ConfirmScreen` 关闭后被触发重建，`new ServerConfigPanel(...)` 创建全新实例，新实例的 `selectedProvider` 通过 `initialSelectedProvider()` 读 `state.activeProvider`，丢失了玩家在旧 panel 里临时切换查看的 `selectedProvider`。

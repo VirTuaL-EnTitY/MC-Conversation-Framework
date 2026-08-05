@@ -288,9 +288,19 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		// 但归零这个字段仍有意义：万一以后新增"重新连接后再次显示加载"之类
 		// 的场景，这个字段的状态要保持干净，不留一个过期的历史时间戳。
 		snapshotRequestedAtMillis = 0;
-		// 快照里的 activeProvider 是服务端确认生效的值，列表的"选中查看"跟随
-		// 过去，保持"保存后看到的就是刚生效的"这个直觉。
-		selectedProvider = state.activeProvider;
+		// 1.1.4 修复：删除 `selectedProvider = state.activeProvider` 这一行。
+		// 旧代码在每次收到快照时都把 selectedProvider 重置为 activeProvider，导致：
+		// 玩家选 B 查看 → 点获取模型 → ModelSelectionScreen 关闭触发 init() 重建 →
+		// 新 panel 构造函数发 requestSnapshot() → 服务端回快照 → onSnapshotUpdated()
+		// → selectedProvider 被重置回 activeProvider（A）→ 玩家看到 Provider 切回 A。
+		//
+		// 为什么删除是安全的：
+		// - 首次打开界面：selectedProvider 通过 initialSelectedProvider() = activeProvider 初始化，不需要这里再设
+		// - init() 重建：selectedProvider 通过 preservedSelectedProvider 保留，不需要这里覆盖
+		// - 保存后：onSave 把 selectedProvider 设为 pendingActiveProvider，保存后 activeProvider = selectedProvider，不需要这里重置
+		// - 别的管理员改了 activeProvider：玩家保留当前查看的 Provider 不被打断——这是更好的行为
+		//
+		// 唯一的行为变化是"管理员改配置后选中不跟随"——但这不打断玩家正在查看的 Provider，是合理的。
 		if (listWidget != null) {
 			listWidget.setSelectedProvider(selectedProvider);
 		}

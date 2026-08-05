@@ -5,6 +5,28 @@
 
 ---
 
+## 1.1.4　Fix onSnapshotUpdated resetting selectedProvider + self-talk subtitle no translation + history show-translation toggle + title styling
+
+**Root cause - onSnapshotUpdated resetting selectedProvider**: 1.1.3's init() rebuild preserving selectedProvider fix (via `preservedSelectedProvider`) only solved half the problem. The real root cause is `ServerConfigPanel` constructor calling `requestSnapshot()` to send a config request; after the new panel is created, the server replies with ConfigSnapshotPayload triggering `onSnapshotUpdated()`, where `selectedProvider = state.activeProvider` resets the preserved selection.
+
+Full timeline: player selects B → clicks Fetch Models → ModelSelectionScreen → clicks Cancel → init() rebuild (preserves B ✓) → new panel constructor sends requestSnapshot() → server replies with snapshot → onSnapshotUpdated() → **selectedProvider = activeProvider = A** ← lost here.
+
+**Why removing the reset line in onSnapshotUpdated is safe**:
+- First open: selectedProvider initialized via `initialSelectedProvider() = activeProvider`, no need to set here
+- init() rebuild: selectedProvider preserved via `preservedSelectedProvider`, no need to override here
+- After save: onSave sets selectedProvider as pendingActiveProvider, after save activeProvider = selectedProvider, no need to reset here
+- Another admin changes activeProvider: player keeps current viewed Provider without interruption — better behavior
+
+The only behavior change is "selection doesn't follow after admin changes config" — but not interrupting the player's current view is reasonable.
+
+**Why self-talk subtitle doesn't show translation line**: Self-talk has `originalText == translatedText` (server doesn't translate self-talk, sourceLang == targetLang). With showOriginal=true it shows "Name: original" + "⇄ translation" — but translation is the same as original, the "⇄ translation" line implies "what I said needs translation". User feedback: this is weird, obviously I understand what I said. Fix: HotbarSubtitleRenderer checks `speakerId == client.player.uuid`, isSelf shows only "Name: original" line.
+
+**Why title uses scale 1.3x instead of larger itemHeight**: 1.21.1's `AlwaysSelectedEntryListWidget` itemHeight is list-level, doesn't support per-entry custom height (introduced in 1.21.8). Using `context.getMatrices().scale(1.3f, 1.3f, 1.0f)` in render to scale text is the only way without breaking list layout. After scale, coordinates must be divided by scale factor to land correctly.
+
+**Why GroupTitleWidget and SystemEventWidget mouseClicked returns false**: AlwaysSelectedEntryListWidget entries are clickable by default. GroupTitleWidget is a group title, SystemEventWidget is "A new conversation started" type narration — they're pure display elements, selecting them is meaningless. Overriding mouseClicked to return false lets clicks pass through, won't be selected.
+
+---
+
 ## 1.1.3　Fix switching Provider losing changes + disable-thinking "yes" not working + command localization
 
 **Root cause - two bugs, same root cause**: User reported "switching Provider then fetching model list, Provider reverts to DeepSeek losing changes" and "disable-thinking warning screen clicking 'yes' still shows off". Superficially two bugs, same root cause: `MCCFConfigScreen.init()` is triggered to rebuild after `ModelSelectionScreen`/`ConfirmScreen` close, `new ServerConfigPanel(...)` creates a fresh instance, and the new instance's `selectedProvider` reads `state.activeProvider` via `initialSelectedProvider()`, losing the `selectedProvider` the player temporarily switched to in the old panel.

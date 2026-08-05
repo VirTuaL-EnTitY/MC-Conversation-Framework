@@ -68,6 +68,7 @@
   "mccf.history.filter.keyword": "Поиск по ключевому слову...",
   "mccf.history.filter.participant": "Участник",
   "mccf.history.filter.participant_all": "Все",
+  "mccf.history.filter.show_translated": "Показать перевод",
   "mccf.history.name_separator": ", ",
   "mccf.history.participant_joined": "%s присоединился к разговору",
   "mccf.history.sort.label": "Сортировка",

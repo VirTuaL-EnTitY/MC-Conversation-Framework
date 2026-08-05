@@ -369,6 +369,15 @@ src/client/java/net/mccf/mod/client/
 
 > 决策分析（根因、方案论证、取舍）已移至 [docs/design-notes.md](docs/design-notes.md)（[英文版](docs/design-notes_en.md)），本章节只保留纯版本更新。
 
+### 2026-08-05　1.1.4 修复：onSnapshotUpdated 重置 selectedProvider + 自己说话字幕不显译文 + 历史记录显示译文开关 + 大标题样式
+
+- **核心 bug 修复 - 切换 Provider 后获取模型列表点取消仍切回 activeProvider**：1.1.3 的 init() 重建保留 selectedProvider 修复只解决了一半——新 panel 构造函数调用 `requestSnapshot()` 发配置请求，服务端回包触发 `onSnapshotUpdated()`，里面 `selectedProvider = state.activeProvider` 把保留的选中状态又重置了。修复：删除 `onSnapshotUpdated` 里的 selectedProvider 重置行。首次打开通过 `initialSelectedProvider()` 初始化，init 重建通过 `preservedSelectedProvider` 保留，保存后 selectedProvider 已等于 activeProvider——三种场景都不需要 onSnapshotUpdated 重置。
+- **UX 修复 - 自己说话字幕不显示译文行**：物品栏字幕（AUDIBLE 模式）下，自己说话时 `originalText == translatedText`（服务端不翻译自己说的话），显示 "⇄ 译文" 会暗示"自己说的话需要翻译"——用户反馈这很奇怪。修复：`HotbarSubtitleRenderer` 渲染时判断 `speakerId == client.player.uuid`，isSelf 时只显示 "名字: 原文" 一行，不显示 ⇄ 译文行。
+- **功能新增 - 聊天历史"显示译文"开关**：筛选面板新增"显示译文"toggle（默认开启），关闭后历史记录只显示原文不显示译文，方便专注阅读原文不被译文干扰。9 种语言新增 `mccf.history.filter.show_translated` 翻译键。FILTER_PANEL_HEIGHT 从 84 改到 104 容纳新控件。
+- **样式改进 - 大标题放大 + 不可选中**：`GroupTitleWidget`（"xxx 的对话"）用 `context.getMatrices().scale(1.3f)` 放大 1.3 倍渲染 + 加深背景色（0x3355AA55 → 0x5555AA55），与普通消息行视觉分开。`GroupTitleWidget` 和 `SystemEventWidget`（"开启了一段新对话"）的 `mouseClicked` 返回 false，不可被点击选中——它们是纯展示元素，选中没有意义。
+
+版本号 `1.1.3` → `1.1.4`。决策分析见 [docs/design-notes.md](docs/design-notes.md)。
+
 ### 2026-08-05　1.1.3 修复：切换 Provider 丢失更改 + 强制关闭思考警告屏幕点"是"不生效 + 命令本土化
 
 - **核心 bug 修复 - 切换 Provider 后操作丢失**：玩家从 DeepSeek 切换到 OpenAI 查看 → 点"获取模型列表"进入 ModelSelectionScreen → 关闭后回到主界面，Provider 列表选中的切回 DeepSeek，丢失了切换到 OpenAI 的所有更改。根因：`MCCFConfigScreen.init()` 在 `ModelSelectionScreen`/`ConfirmScreen` 关闭后被触发重建，`new ServerConfigPanel(...)` 创建全新实例，新实例的 `selectedProvider` 通过 `initialSelectedProvider()` 读 `state.activeProvider`，丢失了玩家在旧 panel 里临时切换查看的 `selectedProvider`。

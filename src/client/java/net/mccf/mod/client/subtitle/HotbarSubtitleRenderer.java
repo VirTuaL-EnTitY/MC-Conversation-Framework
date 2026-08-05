@@ -65,6 +65,13 @@ public class HotbarSubtitleRenderer {
 		int screenWidth = context.getScaledWindowWidth();
 		int screenHeight = context.getScaledWindowHeight();
 
+		// 1.1.4 修复：自己说的话（isSelf）在物品栏字幕里只显示原文一行，不显示 ⇄ 译文行。
+		// 自己说话时 originalText == translatedText（服务端不翻译自己说的话），
+		// 显示 "⇄ 译文" 会暗示"自己说的话需要翻译"——用户反馈这很奇怪，自己显然
+		// 懂自己说了什么，不需要翻译行。所以 isSelf 时只画 "名字: 原文" 一行，
+		// 不走 showOriginal 的"原文 + 译文"双行逻辑。
+		java.util.UUID selfUuid = client.player != null ? client.player.getUuid() : null;
+
 		// 预先对所有字幕做换行处理，以便根据总行数计算起始 Y 坐标，保证多行字幕
 		// 整体仍然底对齐到物品栏上方
 		// 1.1.1 起，是否显示原文由客户端个人偏好决定（ClientOnlyTranslationConfig#
@@ -74,7 +81,11 @@ public class HotbarSubtitleRenderer {
 		boolean showOriginal = ClientOnlyTranslationConfig.get().showOriginalText;
 		List<List<String>> allLines = new ArrayList<>();
 		for (ActiveSubtitle subtitle : subtitles) {
-			if (showOriginal && subtitle.originalText() != null && !subtitle.originalText().isBlank()) {
+			boolean isSelf = selfUuid != null && selfUuid.equals(subtitle.speakerId());
+			if (isSelf) {
+				// 自己说话：只显示原文一行，不显示译文（自己说的话不需要翻译）
+				allLines.add(wrapForHotbar(textRenderer, subtitle.speakerName() + ": " + subtitle.originalText()));
+			} else if (showOriginal && subtitle.originalText() != null && !subtitle.originalText().isBlank()) {
 				allLines.add(wrapForHotbar(textRenderer, subtitle.speakerName() + ": " + subtitle.originalText()));
 				allLines.add(wrapForHotbar(textRenderer, "⇄ " + subtitle.translatedText()));
 			} else {

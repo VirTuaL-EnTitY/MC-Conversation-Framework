@@ -68,6 +68,7 @@
   "mccf.history.filter.keyword": "Search keyword...",
   "mccf.history.filter.participant": "Participant",
   "mccf.history.filter.participant_all": "All",
+  "mccf.history.filter.show_translated": "Show Translation",
   "mccf.history.name_separator": ", ",
   "mccf.history.participant_joined": "%s joined the conversation",
   "mccf.history.sort.label": "Sort",

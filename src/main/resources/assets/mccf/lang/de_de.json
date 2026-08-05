@@ -68,6 +68,7 @@
   "mccf.history.filter.keyword": "Stichwort suchen...",
   "mccf.history.filter.participant": "Teilnehmer",
   "mccf.history.filter.participant_all": "Alle",
+  "mccf.history.filter.show_translated": "Übersetzung anzeigen",
   "mccf.history.name_separator": ", ",
   "mccf.history.participant_joined": "%s ist dem Gespräch beigetreten",
   "mccf.history.sort.label": "Sortieren",

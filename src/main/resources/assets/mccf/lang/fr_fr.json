@@ -68,6 +68,7 @@
   "mccf.history.filter.keyword": "Rechercher un mot-clé...",
   "mccf.history.filter.participant": "Participant",
   "mccf.history.filter.participant_all": "Tous",
+  "mccf.history.filter.show_translated": "Afficher la traduction",
   "mccf.history.name_separator": ", ",
   "mccf.history.participant_joined": "%s a rejoint la conversation",
   "mccf.history.sort.label": "Trier",

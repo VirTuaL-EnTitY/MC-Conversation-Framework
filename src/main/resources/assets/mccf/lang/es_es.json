@@ -68,6 +68,7 @@
   "mccf.history.filter.keyword": "Buscar palabra clave...",
   "mccf.history.filter.participant": "Participante",
   "mccf.history.filter.participant_all": "Todos",
+  "mccf.history.filter.show_translated": "Mostrar traducción",
   "mccf.history.name_separator": ", ",
   "mccf.history.participant_joined": "%s se unió a la conversación",
   "mccf.history.sort.label": "Ordenar",

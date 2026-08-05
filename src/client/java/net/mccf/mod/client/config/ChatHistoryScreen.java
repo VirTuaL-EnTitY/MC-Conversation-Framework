@@ -83,8 +83,8 @@ public class ChatHistoryScreen extends Screen {
 	 */
 	private static final int ITEM_HEIGHT = 12;
 
-	/** 筛选/排序面板展开时的高度，列表顶部要相应下移让出这块空间。 */
-	private static final int FILTER_PANEL_HEIGHT = 84;
+	/** 筛选/排序面板展开时的高度，列表顶部要相应下移让出这块空间。1.1.4 起从 84 改到 104（多一行"显示译文"开关）。 */
+	private static final int FILTER_PANEL_HEIGHT = 104;
 
 	/** 面板是否展开——默认收起，不影响原有"打开即看列表"的体验。 */
 	private boolean filterPanelExpanded = false;
@@ -95,6 +95,11 @@ public class ChatHistoryScreen extends Screen {
 	private String selectedParticipant = "";
 	private String keywordInput = "";
 	private ChatHistoryManager.SortMode sortMode = ChatHistoryManager.SortMode.TIME_DESC;
+	/**
+	 * 1.1.4 新增：是否显示译文。默认开启——历史记录的价值就是"回看翻译对照"。
+	 * 玩家可以在筛选面板里关闭，关闭后只显示原文，方便专注阅读原文不被译文干扰。
+	 */
+	private boolean showTranslated = true;
 
 	private ButtonWidget filterToggleButton;
 	private ButtonWidget sourceSelfButton;
@@ -104,6 +109,8 @@ public class ChatHistoryScreen extends Screen {
 	private CyclingButtonWidget<String> participantButton;
 	private TextFieldWidget keywordField;
 	private CyclingButtonWidget<ChatHistoryManager.SortMode> sortButton;
+	/** 1.1.4 新增："显示译文"开关，放在筛选面板第三行右侧。 */
+	private CyclingButtonWidget<Boolean> showTranslatedButton;
 
 	public ChatHistoryScreen(Screen parent) {
 		super(Text.translatable("mccf.history.title"));
@@ -192,6 +199,16 @@ public class ChatHistoryScreen extends Screen {
 		keywordField.setMaxLength(64);
 		keywordField.setPlaceholder(Text.translatable("mccf.history.filter.keyword"));
 		keywordField.setText(keywordInput);
+
+		// 1.1.4 新增："显示译文"开关，放在关键词输入框右侧——关键词是全宽输入框，
+		// 这里改成关键词占左半、显示译文开关占右半，省得再增加一行高度。
+		// 重新调整关键词输入框宽度为左半。
+		int keywordWidth = (this.width - 16 - 8) / 2;
+		keywordField.setWidth(keywordWidth);
+		showTranslatedButton = addDrawableChild(CyclingButtonWidget.onOffBuilder(showTranslated)
+				.build(col1 + keywordWidth + 8, row3Y, keywordWidth, fieldHeight,
+						Text.translatable("mccf.history.filter.show_translated"),
+						(button, value) -> { showTranslated = value; rebuildList(); }));
 		// 关键词是文本输入，不适合像其他筛选项那样"改了就立刻生效"——打字过程中
 		// 每敲一个字符都重建列表会很卡，也容易在打到一半时列表就跳来跳去。改为
 		// 失去焦点（比如点击别处、按 Tab）时才应用，配合下面的 setChangedListener
@@ -260,6 +277,7 @@ public class ChatHistoryScreen extends Screen {
 		if (participantButton != null) participantButton.visible = v;
 		if (keywordField != null) keywordField.visible = v;
 		if (sortButton != null) sortButton.visible = v;
+		if (showTranslatedButton != null) showTranslatedButton.visible = v;
 	}
 
 	/**
@@ -306,7 +324,7 @@ public class ChatHistoryScreen extends Screen {
 			java.util.Collections.reverse(items);
 			for (ChatTimelineItem item : items) {
 				if (item instanceof ChatTimelineItem.Message m) {
-					listWidget.addEntry(new HistoryEntryWidget(m.entry()));
+					listWidget.addEntry(new HistoryEntryWidget(m.entry(), showTranslated));
 				} else if (item instanceof ChatTimelineItem.SystemEvent s) {
 					listWidget.addEntry(new SystemEventWidget(s.event()));
 				}
@@ -456,13 +474,28 @@ public class ChatHistoryScreen extends Screen {
 				int mouseX, int mouseY, boolean hovered, float delta) {
 			var textRenderer = MinecraftClient.getInstance().textRenderer;
 			String title = buildTitle();
-			// 浅绿背景条把大标题与下面的内容行视觉分开，比系统提示/消息行都更醒目
-			// （大标题是分组的视觉锚点，应该一眼能找到）。
-			context.fill(x, y, x + entryWidth, y + entryHeight, 0x3355AA55);
+			// 1.1.4 改造：大标题用 1.3 倍放大渲染 + 更深的背景色，与普通消息行视觉分开。
+			// 用 context.getMatrices().scale 实现——Minecraft 的 DrawContext 没有直接
+			// "画大号文字"的 API，scale 是最可靠的方式。scale 后文字坐标会按比例放大，
+			// 所以 x/y 坐标要除以 scale 因子。
+			// 背景色加深（从 0x3355AA55 改到 0x5555AA55），让大标题行更醒目。
+			context.fill(x, y, x + entryWidth, y + entryHeight, 0x5555AA55);
 
-			int textY = y + Math.max(0, (entryHeight - textRenderer.fontHeight) / 2);
-			String trimmed = textRenderer.trimToWidth(title, entryWidth - 8);
-			context.drawTextWithShadow(textRenderer, trimmed, x + 4, textY, 0x55FF55);
+			float scale = 1.3f;
+			context.getMatrices().push();
+			context.getMatrices().scale(scale, scale, 1.0f);
+			// scale 后坐标系放大，文字坐标要除以 scale 才能落在正确位置
+			int scaledX = (int) ((x + 4) / scale);
+			int scaledY = (int) ((y + Math.max(0, (entryHeight - textRenderer.fontHeight * scale) / 2)) / scale);
+			String trimmed = textRenderer.trimToWidth(title, (int) ((entryWidth - 8) / scale));
+			context.drawTextWithShadow(textRenderer, trimmed, scaledX, scaledY, 0x55FF55);
+			context.getMatrices().pop();
+		}
+
+		@Override
+		public boolean mouseClicked(double mouseX, double mouseY, int button) {
+			// 1.1.4：大标题不可被点击选中——它是纯展示元素，选中它没有意义。
+			return false;
 		}
 	}
 
@@ -504,6 +537,12 @@ public class ChatHistoryScreen extends Screen {
 			int textX = x + Math.max(0, (entryWidth - textRenderer.getWidth(trimmed)) / 2);
 			context.drawTextWithShadow(textRenderer, trimmed, textX, textY, Colors.GRAY);
 		}
+
+		@Override
+		public boolean mouseClicked(double mouseX, double mouseY, int button) {
+			// 1.1.4：系统提示不可被点击选中——纯展示元素。
+			return false;
+		}
 	}
 
 	/**
@@ -520,9 +559,12 @@ public class ChatHistoryScreen extends Screen {
 	 */
 	private static class HistoryEntryWidget extends HistoryListEntry {
 		private final ChatHistoryEntry entry;
+		/** 1.1.4 新增：是否显示译文，由 ChatHistoryScreen 在创建 entry 时传入。 */
+		private final boolean showTranslated;
 
-		HistoryEntryWidget(ChatHistoryEntry entry) {
+		HistoryEntryWidget(ChatHistoryEntry entry, boolean showTranslated) {
 			this.entry = entry;
+			this.showTranslated = showTranslated;
 		}
 
 		@Override
@@ -555,22 +597,21 @@ public class ChatHistoryScreen extends Screen {
 			String speakerName = entry.speakerName() == null || entry.speakerName().isBlank()
 					? "?" : entry.speakerName();
 
-			// itemHeight 是列表级统一的（12px），不支持每条目自定义高度（1.21.8 才引入），
-			// 所以每条记录只能画一行——把"[来源] 说话者：原文（⇄ 译文 [语言标签]）"拼成
-			// 一行，右侧留时间戳，超宽时裁剪加省略号。为兼顾信息密度，优先保证时间戳和
-			// 说话者可见，正文内容允许被截断（历史记录本来就是"回溯个大概"，不是完整
-			// 对照阅读工具）。
+			// 1.1.4 修复：根据 showTranslated 决定是否显示译文。关闭时只显示原文，
+			// 方便专注阅读原文不被译文干扰；开启时显示 "原文 ⇄ 译文 [语言标签]"。
 			String message = entry.originalText();
-			boolean hasTranslation = entry.translatedText() != null
-					&& !entry.translatedText().isBlank()
-					&& !entry.translatedText().equals(entry.originalText());
-			if (hasTranslation) {
-				message = message + " ⇄ " + entry.translatedText();
+			if (showTranslated) {
+				boolean hasTranslation = entry.translatedText() != null
+						&& !entry.translatedText().isBlank()
+						&& !entry.translatedText().equals(entry.originalText());
+				if (hasTranslation) {
+					message = message + " ⇄ " + entry.translatedText();
 
-				boolean hasLangLabel = entry.sourceLang() != null && entry.targetLang() != null
-						&& !entry.sourceLang().equals(entry.targetLang());
-				if (hasLangLabel) {
-					message = message + " [" + entry.sourceLang() + "→" + entry.targetLang() + "]";
+					boolean hasLangLabel = entry.sourceLang() != null && entry.targetLang() != null
+							&& !entry.sourceLang().equals(entry.targetLang());
+					if (hasLangLabel) {
+						message = message + " [" + entry.sourceLang() + "→" + entry.targetLang() + "]";
+					}
 				}
 			}
 

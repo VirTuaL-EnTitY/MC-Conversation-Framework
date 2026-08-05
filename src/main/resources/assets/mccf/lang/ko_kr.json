@@ -68,6 +68,7 @@
   "mccf.history.filter.keyword": "키워드 검색...",
   "mccf.history.filter.participant": "참여자",
   "mccf.history.filter.participant_all": "전체",
+  "mccf.history.filter.show_translated": "번역 표시",
   "mccf.history.name_separator": ", ",
   "mccf.history.participant_joined": "%s 님이 대화에 참여했습니다",
   "mccf.history.sort.label": "정렬",

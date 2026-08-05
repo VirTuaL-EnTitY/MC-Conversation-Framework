@@ -68,6 +68,7 @@
   "mccf.history.filter.keyword": "キーワード検索...",
   "mccf.history.filter.participant": "参加者",
   "mccf.history.filter.participant_all": "すべて",
+  "mccf.history.filter.show_translated": "訳文を表示",
   "mccf.history.name_separator": "、",
   "mccf.history.participant_joined": "%s が会話に参加しました",
   "mccf.history.sort.label": "並び替え",

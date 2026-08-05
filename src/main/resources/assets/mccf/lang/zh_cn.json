@@ -68,6 +68,7 @@
   "mccf.history.filter.keyword": "搜索关键词……",
   "mccf.history.filter.participant": "参与者",
   "mccf.history.filter.participant_all": "全部",
+  "mccf.history.filter.show_translated": "显示译文",
   "mccf.history.name_separator": "、",
   "mccf.history.participant_joined": "%s 加入了对话",
   "mccf.history.sort.label": "排序",
