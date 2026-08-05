@@ -100,5 +100,5 @@
   "mccf.provider.ollama": "Ollama（ローカル）",
   "mccf.provider.openai": "OpenAI",
   "mccf.provider.zhipu": "Zhipu AI（GLM）",
-  "mccf.tip.first_join": "[MCCF] MC Conversation Framework の準備ができました。設定 → 操作 → キーバインド で MCCF のキーを割り当てて設定画面を開けるようにしてください。"
+  "mccf.tip.first_join": "[MCCF] MC Conversation Framework の準備ができました。ModMenu を導入している場合は Mods リストで MCCF の横にある歯車アイコンをクリックして設定を開けます。または 設定 → 操作 → キーバインド で MCCF のキーを割り当てて設定画面を開くこともできます。"
 }

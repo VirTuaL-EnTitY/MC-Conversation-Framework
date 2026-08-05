@@ -80,22 +80,38 @@ public record ConversationRosterPayload(
 				}
 			},
 			buf -> {
-				UUID conversationId = Uuids.PACKET_CODEC.decode(buf);
+			UUID conversationId = Uuids.PACKET_CODEC.decode(buf);
 
-				int idCount = buf.readVarInt();
-				List<UUID> ids = new java.util.ArrayList<>(idCount);
-				for (int i = 0; i < idCount; i++) {
-					ids.add(Uuids.PACKET_CODEC.decode(buf));
-				}
-
-				int nameCount = buf.readVarInt();
-				List<String> names = new java.util.ArrayList<>(nameCount);
-				for (int i = 0; i < nameCount; i++) {
-					names.add(PacketCodecs.STRING.decode(buf));
-				}
-
-				return new ConversationRosterPayload(conversationId, ids, names);
+			// 1.1.2 安全修复：readVarInt 返回值必须在上限校验**之前**使用——
+			// 旧代码直接把 idCount 传给 new ArrayList<>(idCount)，恶意客户端
+			// 发送 idCount=Integer.MAX_VALUE 会预分配约 16GB 内存直接 OOM 服务端。
+			// 上限校验放在 ArrayList 构造之前，先 clamp 到 MAX_PARTICIPANTS 再预分配容量。
+			// nameCount 同理处理。校验失败时抛 IllegalArgumentException 会被 Fabric
+			// 的 Payload 反序列化层捕获并丢弃该包（不会让服务端崩溃），等价于"无视恶意包"。
+			int idCount = buf.readVarInt();
+			if (idCount < 0 || idCount > MAX_PARTICIPANTS) {
+				throw new IllegalArgumentException(
+						"ConversationRosterPayload idCount out of range [0, " + MAX_PARTICIPANTS +
+						"]: " + idCount);
 			}
+			List<UUID> ids = new java.util.ArrayList<>(idCount);
+			for (int i = 0; i < idCount; i++) {
+				ids.add(Uuids.PACKET_CODEC.decode(buf));
+			}
+
+			int nameCount = buf.readVarInt();
+			if (nameCount < 0 || nameCount > MAX_PARTICIPANTS) {
+				throw new IllegalArgumentException(
+						"ConversationRosterPayload nameCount out of range [0, " + MAX_PARTICIPANTS +
+						"]: " + nameCount);
+			}
+			List<String> names = new java.util.ArrayList<>(nameCount);
+			for (int i = 0; i < nameCount; i++) {
+				names.add(PacketCodecs.STRING.decode(buf));
+			}
+
+			return new ConversationRosterPayload(conversationId, ids, names);
+		}
 	);
 
 	@Override

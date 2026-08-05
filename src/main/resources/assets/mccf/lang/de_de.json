@@ -100,5 +100,5 @@
   "mccf.provider.ollama": "Ollama (lokal)",
   "mccf.provider.openai": "OpenAI",
   "mccf.provider.zhipu": "Zhipu AI (GLM)",
-  "mccf.tip.first_join": "[MCCF] MC Conversation Framework ist bereit. Gehe zu Einstellungen → Steuerung → Tastenbelegung, um eine Taste für MCCF zuzuweisen und den Konfigurationsbildschirm zu öffnen."
+  "mccf.tip.first_join": "[MCCF] MC Conversation Framework ist bereit. Wenn du ModMenu installiert hast, klicke auf das Zahnrad-Symbol neben MCCF in der Mods-Liste, um die Einstellungen zu öffnen; alternativ gehe zu Einstellungen → Steuerung → Tastenbelegung, um eine Taste für MCCF zuzuweisen und den Konfigurationsbildschirm zu öffnen."
 }

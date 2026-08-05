@@ -59,8 +59,12 @@ public class MCCFClient implements ClientModInitializer {
 	private static KeyBinding openHistoryKey;
 
 	/**
-	 * 首次启动提示是否已经发过。整个客户端生命周期只提示一次——不随换服务器重置，
-	 * 避免玩家每次进服都被同一条提示刷屏。进程重启后自然重置（字段在内存里不持久化）。
+	 * 首次启动提示是否已经发过。1.1.2 起从内存 static boolean 改为持久化到
+	 * {@link ClientOnlyModeManager}（client-mode.json），避免老玩家每次重启客户端
+	 * 被同一条提示刷屏。
+	 *
+	 * 这里保留字段是为了让 JOIN 事件回调里读起来更直观，实际查询/标记都委托给
+	 * ClientOnlyModeManager 的持久化版本。重启后从磁盘加载的值会覆盖此字段。
 	 */
 	private static boolean tipped = false;
 
@@ -111,10 +115,14 @@ public class MCCFClient implements ClientModInitializer {
 						// 监听器不会触发，只能从 SubtitlePayload 里拿文本走本地翻译。
 						// 优先用 originalText（原文）让本地 Provider 按玩家自己语言翻译；
 						// 1.1.1 起服务端始终携带原文，但兼容旧服务端时仍需退到 translatedText。
+						// 1.1.2 起把 payload.speakerName() 也传过去，让历史记录能正确显示说话者名
+						// 而不是解析失败留空显示 "?"——SubtitlePayload 的原文不带 "<玩家名>" 前缀，
+						// 旧版 translateAndAppend 内部的 parseSpeakerName 解析不到，必须显式传入。
 						String sourceText = payload.originalText();
 						if (sourceText == null || sourceText.isBlank()) sourceText = payload.translatedText();
 						if (sourceText != null && !sourceText.isBlank()) {
-							ClientOnlyChatTranslator.translateAndAppend(sourceText, payload.speakerId().toString());
+							ClientOnlyChatTranslator.translateAndAppend(
+									sourceText, payload.speakerId().toString(), payload.speakerName());
 						}
 					} else if ("VISIBLE".equals(payload.displayMode())) {
 						// VISIBLE（看得到说话者）走原版聊天框。这是 0.16.0 起的正式行为——
@@ -223,13 +231,17 @@ public class MCCFClient implements ClientModInitializer {
 			ClientOnlyModeManager.onJoinServer();
 
 			// O1 首次启动提示：本 Mod 的配置按键没有默认绑定，玩家装完可能完全不知道
-			// 有这个 Mod 存在。用 tipped 标记保证整个客户端生命周期只提示一次——
-			// 不随换服务器重置，避免每次进服都被同一条提示刷屏。
+			// 有这个 Mod 存在。1.1.2 起从内存 static 标记改为持久化到 client-mode.json，
+			// 老玩家重启客户端不会被同一条提示刷屏（升级到 1.1.2 后会再提示一次让用户
+			// 感知到改进，之后不再重复）。
 			// 放在 JOIN 事件里（而不是 onInitializeClient）是因为 client.player 在
 			// 初始化阶段还不存在，发消息必须等进入游戏世界后才能调用。
-			if (!tipped && client.player != null) {
+			// 1.1.2 起提示文案同时给出"ModMenu 入口"和"按键绑定"两条路径——
+			// 不是所有玩家都用按键绑定（默认未绑定），ModMenu 是更直观的入口。
+			if (!ClientOnlyModeManager.hasTippedFirstJoin() && client.player != null) {
 				client.player.sendMessage(
 						Text.translatable("mccf.tip.first_join").formatted(Formatting.GRAY), false);
+				ClientOnlyModeManager.markTippedFirstJoin();
 				tipped = true;
 			}
 		});

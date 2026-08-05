@@ -100,5 +100,5 @@
   "mccf.provider.ollama": "Ollama (Local)",
   "mccf.provider.openai": "OpenAI",
   "mccf.provider.zhipu": "Zhipu AI (GLM)",
-  "mccf.tip.first_join": "[MCCF] MC Conversation Framework is ready. Go to Settings → Controls → Key Binds to bind a key for MCCF to open the config screen."
+  "mccf.tip.first_join": "[MCCF] MC Conversation Framework is ready. If you have ModMenu installed, click the gear icon next to MCCF in the Mods list to open settings; alternatively, go to Settings → Controls → Key Binds to bind a key for MCCF to open the config screen."
 }

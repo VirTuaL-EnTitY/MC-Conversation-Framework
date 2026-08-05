@@ -100,5 +100,5 @@
   "mccf.provider.ollama": "Ollama (локально)",
   "mccf.provider.openai": "OpenAI",
   "mccf.provider.zhipu": "Zhipu AI (GLM)",
-  "mccf.tip.first_join": "[MCCF] MC Conversation Framework готов. Перейдите в Настройки → Управление → Назначение клавиш, чтобы назначить клавишу для MCCF и открыть экран конфигурации."
+  "mccf.tip.first_join": "[MCCF] MC Conversation Framework готов. Если у вас установлен ModMenu, нажмите на значок шестерёнки рядом с MCCF в списке Mods, чтобы открыть настройки; либо перейдите в Настройки → Управление → Назначение клавиш, чтобы назначить клавишу для MCCF и открыть экран конфигурации."
 }

@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.fabricmc.loader.api.FabricLoader;
 import net.mccf.mod.MCCF;
+import net.mccf.mod.client.chat.ClientOnlyChatTranslator;
 import net.mccf.mod.config.ProviderConfig;
 
 import java.io.IOException;
@@ -118,6 +119,11 @@ public class ClientOnlyTranslationConfig {
 			try (Writer writer = Files.newBufferedWriter(CONFIG_FILE)) {
 				GSON.toJson(this, writer);
 			}
+			// 1.1.2 修复"改 API Key 后翻译仍用旧 Key"：保存后失效 ClientOnlyChatTranslator
+			// 的 Provider 缓存，下一次翻译请求会基于最新配置重建 Provider。
+			// 必须在文件成功写入之后再失效——如果写入失败缓存失效反而会让玩家以为
+			// "改了 Key 但没保存"（实际是没保存成功 + 缓存清了，状态更乱）。
+			ClientOnlyChatTranslator.invalidateProviderCache();
 		} catch (IOException e) {
 			MCCF.LOGGER.error("[MCCF] Failed to save client-only translation config.", e);
 		}

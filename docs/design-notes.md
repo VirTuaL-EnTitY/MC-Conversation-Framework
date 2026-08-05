@@ -7,6 +7,48 @@
 
 ---
 
+## 1.1.2　QA 报告批量修复：Zhipu 未注册 + 网络包安全 + 翻译失败感知 + 多项 UX 改进
+
+**根因分析 - Zhipu 未注册**：0.15.0 加入智谱 Provider 时，`ProviderDefaults` / `ProviderFactory` / `MCCFConfig.defaultProviderConfigs()` / `ClientConfigState.PROVIDER_IDS` 都正确添加了 zhipu，但 `MCCF.registerAllProviders()` 第 222 行的 `List.of("openai", "claude", "gemini", "deepl", "kimi", "deepseek", "ollama")` 漏了。这导致：
+- 玩家在配置界面**能看到并选择**智谱 AI（因为 ClientConfigState.PROVIDER_IDS 包含 zhipu）
+- 玩家能**填 API Key 并保存**（因为 config.providers 默认会为 zhipu 生成配置项）
+- 但 `setActiveProvider("zhipu")` 在 TranslationService 找不到该 Provider，**静默 fallback 到 Mock**
+- 日志只有一行 warn，且 warn 信息是"Configured provider 'zhipu' not found, falling back to mock"——管理员看到也会以为是"配置错了"，不会想到是"代码漏了一行"
+
+这种"看着配好了实际没生效"的 bug 比完全没功能更糟糕，因为玩家会反复修改配置以为自己操作错了。根因是 Provider 注册散落在两处（运行时 `registerAllProviders()` 和界面 `ClientConfigState.PROVIDER_IDS`），没有单一数据源约束，新加 Provider 时容易遗漏一处。
+
+**为什么是 List.of 字面量而不是从 ProviderDefaults 派生**：理想方案是 `for (String id : ProviderDefaults.all().keySet())` 自动遍历所有已定义的 Provider，新增 Provider 时只需在 ProviderDefaults 加一行即可，不会遗漏。但当前实现保持 List.of 字面量有两个考量：(1) 显式列出可以让 review 时一眼看出哪些 Provider 在注册，方便排查；(2) ProviderDefaults.all() 的迭代顺序在 Map 实现下不稳定，可能影响"Mock 优先注册以便 fallback"的隐式约定。如果未来再加 Provider 仍漏注册，应考虑改成派生方案。
+
+**根因分析 - 网络包长度校验缺失**：`PacketCodecs.STRING` 在 Minecraft 协议层不限制字符串长度，由调用方自行校验。`SubtitlePayload` 和 `UpdateConfigPayload` 早期就加了校验（`MAX_TEXT_LENGTH = 4096` / `MAX_JSON_LENGTH = 65536`），但 `RequestModelsPayload` / `LanguageReportPayload` / `ConversationRosterPayload` 解码端都漏了。这是"先写的 Payload 加了校验，后写的忘了加"的典型遗漏——团队没有统一的"新增 Payload 必须加长度校验"规则。本次修复后应在已确认规则章节补一条约束。
+
+**为什么 RequestModelsPayload 的恶意包风险更严重**：该 Payload 携带 apiKey + endpoint + providerId 三个字段，恶意客户端可以构造数 MB 的 JSON 字符串通过 `PacketCodecs.STRING` 传输。服务端 `ConfigSyncHandler.handleModelsRequest` 会用 Gson 解析它，Gson 解析大 JSON 时消耗大量 CPU 和内存。**关键点**：Payload 反序列化发生在 op 权限校验**之前**——也就是说，恶意客户端甚至**不需要 op 权限**就能触发服务端内存分配。这是真正的安全漏洞，不只是"管理员被刷屏"的体验问题。
+
+**为什么 ConversationRosterPayload 的解码端校验放在 ArrayList 构造之前**：旧代码 `int idCount = buf.readVarInt(); List<UUID> ids = new ArrayList<>(idCount);` 直接把 idCount 传给 ArrayList 构造器预分配容量。`new ArrayList<>(Integer.MAX_VALUE)` 会尝试预分配约 16GB 内存（`Integer.MAX_VALUE * 8 bytes/引用 ≈ 16GB`），即使元素从未真正写入也会 OOM。校验必须在 ArrayList 构造**之前**完成，否则校验本身就晚了。构造函数的 `MAX_PARTICIPANTS` 检查（第 50 行）虽然存在，但它在校验失败时抛 `IllegalArgumentException`，而 ArrayList 已经被构造过——OOM 已经发生，异常来不及抛。
+
+**为什么翻译失败要计数而不是直接告诉玩家**：TranslationService.translate() 的 exceptionally 把失败转成原文 fallback 返回，上层调用方收到的 future 永远成功——这是为了"翻译失败时玩家至少看到原文而不是完全收不到消息"的设计。但代价是上层无法区分"翻译成功且译文等于原文"和"翻译失败回退原文"。
+
+要彻底解决需要引入 `TranslationResult(text, success)` 包装类型，但这会改 TranslationService 的所有调用方签名，影响范围大。本次采取折衷：
+1. 加原子计数器让 `/mccf status` 能展示统计——管理员视角能感知到失败趋势
+2. 客户端路径（ClientOnlyChatTranslator）直接调用 `provider.translate()` 不经 TranslationService，exceptionally 仍能触发——加去重的玩家提示
+
+服务端路径下普通玩家仍无法直接区分译文等于原文是成功还是失败，但管理员可以查 `/mccf status` 主动排查。这是"管理员能感知 + 客户端玩家能感知 + 服务端玩家靠管理员排查"的三层方案。
+
+**为什么 ClientOnlyChatTranslator 失败提示要 60 秒去重**：聊天刷屏时如果每条消息都失败（比如 API Key 失效），每条都给玩家发一条"翻译失败"提示会把聊天栏刷爆——比"静默失败"更糟。去重策略以 reason 字符串为 key，同一原因 60 秒内只提示一次。换 Provider / 换 Key 后失败原因通常会变，新 reason 会立即提示——让玩家感知"现在的失败是新问题"。
+
+**为什么 ClientOnlyTranslationConfig.save() 失效 Provider 缓存**：旧版 `ClientOnlyChatTranslator.getProvider()` 按 providerId 缓存 Provider 实例永不失效，玩家改 API Key 后必须切 Provider 再切回来才能刷新——这个限制太隐晦，玩家会以为 Key 没保存成功反复改。
+
+最简单的失效点是 `ClientOnlyTranslationConfig.save()`——保存路径单一（玩家在配置界面点保存），在文件成功写入后回调失效缓存保证"保存即刷新"。为什么不直接在 getProvider 里每次都比对字段：实时感知配置变更需要 ProviderConfig 自己支持"字段变更通知"或在 getProvider 里逐字段 diff，复杂度不值当。
+
+**为什么 RateLimiter 从固定窗口升级为滑动窗口**：固定窗口的经典问题是边界突刺——5 条/秒限制下，窗口末尾的 5 条 + 新窗口开头的 5 条 = 10 条/秒突刺。对聊天刷屏这种异常行为，突刺本身影响有限；但对 OpenAI / DeepL 这类付费 API，2 倍突刺可能直接触发上游速率限制导致 API Key 被临时封禁——比"翻译偶尔失败"严重得多。
+
+滑动窗口用 ArrayDeque 维护已放行请求的时间戳，每次 tryAcquire 先清理窗口外时间戳再判定队列长度。复杂度增加不大（10 行左右），但精度从"窗口级"提升到"任意连续窗口级"。被拒绝的请求不进入队列——这避免了旧版"被拒绝也 incrementAndGet"的语义混淆。
+
+**为什么首次提示从内存 static 改为持久化**：旧版 `tipped` 是 static boolean，进程重启后重置——老玩家每次重启游戏都会被同一条提示刷屏。改为持久化到 `client-mode.json` 的 `tippedFirstJoin` 字段后，老玩家重启不再被提示。升级到 1.1.2 后会**再提示一次**——这是有意为之，让升级用户感知到"现在提示也提到了 ModMenu 入口"这个改进，之后不再重复。
+
+**为什么提示文案加入 ModMenu 入口**：旧版只说"前往按键绑定"，但默认按键未绑定（`InputUtil.UNKNOWN_KEY`），玩家得自己先去按键绑定再回来按——这对新人太陡。ModMenu 是更直观的入口（Mods 列表里点齿轮图标），9 种语言文案同时更新。
+
+---
+
 ## 1.1.1　修复强制关闭思考开关 + 显示原文改为客户端个人偏好
 
 **Bug 1：强制关闭思考开关点"是"后仍显示"关"的根因**：`ConfirmScreen` 的回调里

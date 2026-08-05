@@ -53,9 +53,21 @@ public final class ClientOnlyModeManager {
 	/** 纯粹用于 Gson 序列化的内部数据结构。 */
 	private static final class PersistedState {
 		String override = Override.AUTO.name();
+		/**
+		 * "首次加入提示"是否已经发过。1.1.2 起从内存中的 static boolean 改为
+		 * 持久化字段，避免老玩家每次重启客户端都被同一条提示刷屏。
+		 *
+		 * 字段名 tippedFirstJoin 而不是 tipped 是为了语义清晰——未来若有别的
+		 * 一次性提示也能用同样的命名模式（tippedXxx）扩展，不会和通用的 tipped
+		 * 标志冲突。Gson 反序列化旧文件时该字段缺失会被默认为 false，等价于
+		 * "还没提示过"，老玩家升级到 1.1.2 后仍会收到**一次**提示——这是有意为之，
+		 * 让升级用户知道有这个改进存在；之后再也不会重复提示。
+		 */
+		boolean tippedFirstJoin = false;
 	}
 
 	private static Override override = Override.AUTO;
+	private static boolean tippedFirstJoin = false;
 
 	/** 本次连接里自动检测到的结果：服务器是否声明了 MCCF 的网络通道。未连接任何服务器时为 false。 */
 	private static boolean serverHasMod = false;
@@ -75,6 +87,12 @@ public final class ClientOnlyModeManager {
 							override = Override.AUTO;
 						}
 					}
+					// 1.1.2 起持久化 tippedFirstJoin，避免老玩家重启客户端被重复提示。
+					// 旧文件没有这个字段时 Gson 默认为 false，老玩家升级后会再提示一次
+					// （有意为之，让升级用户感知到改进），之后不会再重复。
+					if (state != null) {
+						tippedFirstJoin = state.tippedFirstJoin;
+					}
 				}
 			}
 		} catch (IOException e) {
@@ -87,12 +105,25 @@ public final class ClientOnlyModeManager {
 			Files.createDirectories(CONFIG_DIR);
 			PersistedState state = new PersistedState();
 			state.override = override.name();
+			state.tippedFirstJoin = tippedFirstJoin;
 			try (Writer writer = Files.newBufferedWriter(STATE_FILE)) {
 				GSON.toJson(state, writer);
 			}
 		} catch (IOException e) {
 			MCCF.LOGGER.error("[MCCF] Failed to save client-only mode state.", e);
 		}
+	}
+
+	/** 查询"首次加入提示"是否已经发过。 */
+	public static boolean hasTippedFirstJoin() {
+		return tippedFirstJoin;
+	}
+
+	/** 标记"首次加入提示"已发，并立即落盘。 */
+	public static void markTippedFirstJoin() {
+		if (tippedFirstJoin) return;
+		tippedFirstJoin = true;
+		save();
 	}
 
 	/**

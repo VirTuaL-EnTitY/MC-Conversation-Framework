@@ -100,5 +100,5 @@
   "mccf.provider.ollama": "Ollama（本地部署）",
   "mccf.provider.openai": "OpenAI",
   "mccf.provider.zhipu": "智谱 AI（GLM）",
-  "mccf.tip.first_join": "[MCCF] MC 交流框架已就绪。前往 设置 → 控制 → 按键绑定 为 MCCF 绑定一个按键以打开配置界面。"
+  "mccf.tip.first_join": "[MCCF] MC 交流框架已就绪。装了 ModMenu 的话可以在 Mods 列表里点 MCCF 旁边的齿轮图标打开设置；也可以前往 设置 → 控制 → 按键绑定 为 MCCF 绑定一个按键直接呼出配置界面。"
 }

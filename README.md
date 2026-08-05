@@ -369,6 +369,21 @@ src/client/java/net/mccf/mod/client/
 
 > 决策分析（根因、方案论证、取舍）已移至 [docs/design-notes.md](docs/design-notes.md)（[英文版](docs/design-notes_en.md)），本章节只保留纯版本更新。
 
+### 2026-08-05　1.1.2 修复：Zhipu 未注册 + 网络包长度校验 + 翻译失败感知 + 多项 QA 问题修复
+
+- **致命 bug 修复**：`MCCF.registerAllProviders()` 漏注册 `"zhipu"`，导致选了智谱 AI 后服务端找不到该 Provider 静默 fallback 到 Mock——配置界面看起来配好了但实际完全没翻译。该 bug 从 0.15.0 加入智谱起跨越多个版本无人发现，根因是 ProviderDefaults/ProviderFactory/ClientConfigState 都包含了 zhipu（玩家界面能正常看到/选择/填 Key），唯独运行时注册表漏了。
+- **安全加固**：`RequestModelsPayload` 加 `MAX_JSON_LENGTH = 65536` 校验；`LanguageReportPayload` 加 `MAX_LANGUAGE_LENGTH = 64` 校验；`ConversationRosterPayload` 解码端 `readVarInt` 后增加 `[0, MAX_PARTICIPANTS]` 范围检查。旧代码无长度校验，恶意客户端可发送超大 JSON / 超大 idCount 触发服务端 OOM——`new ArrayList<>(Integer.MAX_VALUE)` 预分配约 16GB 内存直接打爆服务端。
+- **UX 修复 - 翻译失败玩家感知**：`TranslationService` 新增 `failureCount` / `successCount` 原子计数器；`/mccf status` 命令展示翻译统计（`translations: N ok / M failed (X.X% success)`）；新增 `/mccf stats reset` 子命令重置统计；`ClientOnlyChatTranslator` 翻译失败时给玩家聊天栏发一次去重的灰色提示（同一 reason 60 秒内只提示一次，避免刷屏）。
+- **UX 修复 - Provider 缓存即时刷新**：`ClientOnlyChatTranslator` 的 Provider 缓存永不失效导致玩家改 API Key 后翻译仍用旧 Key。新增 `invalidateProviderCache()` 方法，由 `ClientOnlyTranslationConfig.save()` 在文件成功写入后回调触发，保证"保存即刷新"。
+- **UX 修复 - 历史记录说话者名**：纯客户端模式下历史记录 speakerName 永远显示 "?"。`ClientOnlyChatTranslator` 新增 `parseSpeakerName()` 从聊天文本 `<玩家名>` 前缀解析；新增 `translateAndAppend(text, uuid, speakerNameHint)` 重载，让 SubtitlePayload 退回路径能传入 payload 自带的权威 speakerName。
+- **健壮性修复 - UUID 解析**：`ClientOnlyChatTranslator` 的 `UUID.fromString(senderUuid)` 在非标准 UUID 格式时抛 IllegalArgumentException 被异步调度器吞掉。新增 `parseSenderUuid()` 加 try-catch 退化成零 UUID，保证翻译流程继续。
+- **健壮性修复 - LogExporter 日志爆炸**：磁盘满时每行写入失败都记一次 error 日志，百万行日志会产生百万条错误。新增 `AtomicBoolean writeFailed` 标志，首次写入失败后立即停止后续写入，避免日志风暴；结果消息标注"PARTIAL, write aborted"。
+- **限流升级**：`RateLimiter` 从固定窗口升级为滑动窗口（ArrayDeque 时间戳队列）。旧版固定窗口在边界附近可能放过接近 2 倍上限的请求（5 条/秒限制下突刺可达 10 条/秒），可能触发 OpenAI / DeepL 等付费 API 限流导致 Key 被临时封禁。滑动窗口精确限制"任意连续 1 秒内不超过 5 条"，无突刺风险。`RateLimiterTest` 同步更新并新增"滑动窗口边界无 2 倍突刺"测试用例。
+- **UX 优化 - 字幕溢出提示**：`HotbarSubtitleRenderer` 字幕上限 5 条超出时旧版静默丢弃，玩家无感知。新版在字幕堆叠底部追加一行灰色文字 `… 还有 N 条字幕未显示`，玩家可感知有内容被跳过。
+- **UX 优化 - 首次提示持久化 + ModMenu 入口**：`MCCFClient.tipped` 从内存 static boolean 改为持久化到 `client-mode.json` 的 `tippedFirstJoin` 字段，老玩家重启客户端不再被同一条提示刷屏（升级到 1.1.2 后会再提示一次让用户感知到改进，之后不再重复）。9 种语言的首次提示文案同时加入 ModMenu 入口说明，玩家不需绑定按键也能找到设置入口。
+
+版本号 `1.1.1` → `1.1.2`。决策分析见 [docs/design-notes.md](docs/design-notes.md)。
+
 ### 2026-08-04　1.1.1 修复：强制关闭思考开关点"是"不生效 + 显示原文改为客户端个人偏好
 
 - 修复"强制关闭思考"开关点确认弹窗"是"后仍显示"关"的 bug（`ServerConfigPanel`/`LocalConfigPanel` 的 `onDisableThinkingToggled` 回调顺序错误）。

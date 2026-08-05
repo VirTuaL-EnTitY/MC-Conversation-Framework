@@ -219,7 +219,12 @@ public class MCCF implements ModInitializer {
 	 */
 	public static void registerAllProviders() {
 		translationService.registerProvider(new MockTranslationProvider());
-		for (String id : java.util.List.of("openai", "claude", "gemini", "deepl", "kimi", "deepseek", "ollama")) {
+		// 1.1.2 修复：早期 0.15.0 加入智谱时这里漏掉了 "zhipu"，导致选了智谱后 setActiveProvider
+		// 找不到该 Provider 静默 fallback 到 Mock——配置界面看起来配好了但实际完全没翻译。
+		// 跨越 0.15.0~1.1.1 多个版本没人发现，根因是 ProviderDefaults/ProviderFactory/ClientConfigState
+		// 都包含了 zhipu（玩家界面能正常看到/选择/填 Key），唯独运行时注册表漏了，造成"看着配好了
+		// 实际没生效"的假象。修复方式就是把 "zhipu" 加进这个列表。
+		for (String id : java.util.List.of("openai", "claude", "gemini", "deepl", "kimi", "deepseek", "zhipu", "ollama")) {
 			translationService.registerProvider(
 					net.mccf.mod.translation.provider.ProviderFactory.create(id, config.getProviderConfig(id)));
 		}

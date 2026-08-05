@@ -40,6 +40,8 @@ public class HotbarSubtitleRenderer {
 	// 遮挡视野，69% 是可读性和视觉侵入性之间的经验平衡值。
 	private static final int BACKGROUND_COLOR = 0xB0000000;
 	private static final int TEXT_COLOR = Colors.WHITE;
+	// 1.1.2 新增：超出 MAX_SUBTITLES 时的提示文字颜色（灰色，弱化以免抢眼）。
+	private static final int OVERFLOW_HINT_COLOR = Colors.GRAY;
 
 	public void render(DrawContext context, RenderTickCounter tickCounter) {
 		MinecraftClient client = MinecraftClient.getInstance();
@@ -47,10 +49,17 @@ public class HotbarSubtitleRenderer {
 
 		// 0.16.0 起 SubtitleManager 只承载 AUDIBLE 字幕，不再需要按 mode 过滤——
 		// VISIBLE 模式的 payload 在 MCCFClient 接收时就被分流到聊天栏，不进入 SubtitleManager。
-		List<ActiveSubtitle> subtitles = SubtitleManager.getActiveAndPrune().stream()
-				.limit(MAX_SUBTITLES)
-				.toList();
-		if (subtitles.isEmpty()) return;
+		// 1.1.2 改造：先取完整列表（用于判断是否超出上限），再切片前 MAX_SUBTITLES 条渲染。
+		// 旧版直接 .limit(MAX_SUBTITLES).toList() 会丢弃超出部分，玩家完全无感知——
+		// 在多人吵架场景下可能错过重要信息且不知情。新版检测超出后在底部追加一行
+		// "还有 N 条字幕未显示" 灰色提示，玩家可以选择走近说话者让其重新进入 VISIBLE 范围。
+		List<ActiveSubtitle> allSubtitles = SubtitleManager.getActiveAndPrune();
+		if (allSubtitles.isEmpty()) return;
+
+		boolean overflowed = allSubtitles.size() > MAX_SUBTITLES;
+		List<ActiveSubtitle> subtitles = overflowed
+				? allSubtitles.subList(0, MAX_SUBTITLES)
+				: allSubtitles;
 
 		TextRenderer textRenderer = client.textRenderer;
 		int screenWidth = context.getScaledWindowWidth();
@@ -73,8 +82,18 @@ public class HotbarSubtitleRenderer {
 			}
 		}
 
+		// 溢出提示作为最后一行加入，参与总行数计算和坐标布局——这样它会自然出现在
+		// 字幕堆叠的最底部（紧贴物品栏上方），不会和正常字幕重叠。
+		String overflowHint = null;
+		if (overflowed) {
+			int hidden = allSubtitles.size() - MAX_SUBTITLES;
+			overflowHint = "… 还有 " + hidden + " 条字幕未显示";
+		}
+
 		int totalLines = 0;
 		for (List<String> lines : allLines) totalLines += lines.size();
+		if (overflowHint != null) totalLines += 1;
+
 		int baseY = screenHeight - BOTTOM_MARGIN_ABOVE_HOTBAR - (totalLines * LINE_HEIGHT);
 
 		int y = baseY;
@@ -86,6 +105,15 @@ public class HotbarSubtitleRenderer {
 				context.drawTextWithShadow(textRenderer, line, x, y, TEXT_COLOR);
 				y += LINE_HEIGHT;
 			}
+		}
+
+		// 最后一行画溢出提示，颜色更弱（灰色 + 半透明黑底），不抢眼但可见。
+		// 不画背景色避免和上一条字幕的背景连成一片——让提示看起来像"附注"
+		// 而不是另一条字幕。
+		if (overflowHint != null) {
+			int textWidth = textRenderer.getWidth(overflowHint);
+			int x = (screenWidth - textWidth) / 2;
+			context.drawTextWithShadow(textRenderer, overflowHint, x, y, OVERFLOW_HINT_COLOR);
 		}
 	}
 

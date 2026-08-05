@@ -3,9 +3,6 @@ package net.mccf.mod.util;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,10 +20,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 1. 单线程基本限流——窗口内前 N 条放行，超出的拒绝
  * 2. 窗口过期后重置——等待窗口过期后重新放行
  * 3. 并发竞争——多线程同时调用不会放过超过上限的请求
+ * 4. 滑动窗口边界——窗口末尾 + 新窗口开头不会出现 2 倍突刺（1.1.2 升级核心验证点）
  *
  * 这些场景手动测试几乎无法覆盖：
  * - 窗口过期需要精确等待 + 时间戳对齐
  * - 并发竞争需要多线程同时触发，手动模拟不现实
+ * - 滑动窗口边界需要毫秒级时序控制
  */
 class RateLimiterTest {
 
@@ -58,7 +57,7 @@ class RateLimiterTest {
 		}
 		assertFalse(limiter.tryAcquire(), "第 4 条应被拒绝");
 
-		// 等待窗口过期
+		// 等待窗口过期（200ms + 50ms 安全余量，保证最后一个时间戳已滑出窗口）
 		Thread.sleep(250);
 
 		// 第二轮：窗口已重置，3 条放行
@@ -105,8 +104,8 @@ class RateLimiterTest {
 		assertTrue(finished, "所有线程应在 5 秒内完成");
 
 		// 核心断言：放行的数量绝不能超过 maxRequests
-		// 这是并发 bug 的关键检测点——如果 synchronized/双检查有缺陷，
-		// 多个线程可能同时进入重置分支，导致计数被清零，放过超过上限的请求
+		// 这是并发 bug 的关键检测点——如果 synchronized 有缺陷，多个线程可能
+		// 同时通过 size < maxRequests 判定，导致放过超过上限的请求
 		assertEquals(maxRequests, accepted.get(),
 				"并发调用时放行数必须等于 maxRequests，实际放行 " + accepted.get());
 		assertEquals(threadCount - maxRequests, rejected.get(),
@@ -127,10 +126,10 @@ class RateLimiterTest {
 	}
 
 	@Test
-	@DisplayName("currentCount 反映当前窗口已放行数量（含被拒绝的请求）")
+	@DisplayName("currentCount 反映当前窗口内已放行数量")
 	void testCurrentCount() {
-		// maxRequests=3，窗口 60s 保证测试期间不重置
-		RateLimiter limiter = new RateLimiter(60000L, 3);
+		// maxRequests=5，窗口 60s 保证测试期间不重置
+		RateLimiter limiter = new RateLimiter(60000L, 5);
 		assertEquals(0, limiter.currentCount());
 
 		// 3 次放行
@@ -139,9 +138,47 @@ class RateLimiterTest {
 		limiter.tryAcquire();
 		assertEquals(3, limiter.currentCount());
 
-		// 2 次拒绝——被拒绝的请求也会 incrementAndGet，所以 count 继续涨
-		limiter.tryAcquire(); // 拒绝（第4次调用）
-		limiter.tryAcquire(); // 拒绝（第5次调用）
-		assertEquals(5, limiter.currentCount());
+		// 2 次拒绝——被拒绝的请求不进入时间戳队列，currentCount 仍为 3
+		// （1.1.2 滑动窗口语义变更：旧版固定窗口下被拒绝也会 incrementAndGet，
+		//  滑动窗口下被拒绝不入队，currentCount 只统计真正放行的请求，更直观）
+		limiter.tryAcquire(); // 放行（第 4 次）
+		limiter.tryAcquire(); // 放行（第 5 次，达到上限）
+		limiter.tryAcquire(); // 拒绝（第 6 次，超出上限）
+		limiter.tryAcquire(); // 拒绝（第 7 次，超出上限）
+		assertEquals(5, limiter.currentCount(), "被拒绝的请求不应计入 currentCount");
+	}
+
+	@Test
+	@DisplayName("滑动窗口边界：窗口末尾 + 新窗口开头不会出现 2 倍突刺")
+	void testSlidingWindowNoSpike() throws InterruptedException {
+		// 这是 1.1.2 升级滑动窗口的核心验证场景：
+		// 旧版固定窗口在 200ms 边界处可能放过 5 + 5 = 10 条/秒突刺。
+		// 滑动窗口下，窗口末尾的 5 条会和"新窗口开头"在同一个滑动窗口里被算计，
+		// 必须拒绝超出部分。
+		RateLimiter limiter = new RateLimiter(200L, 5);
+
+		// 在窗口末尾（接近 200ms 时）打满 5 条
+		for (int i = 0; i < 5; i++) {
+			assertTrue(limiter.tryAcquire(), "窗口末尾第 " + (i + 1) + " 条应放行");
+		}
+
+		// 等待很短时间（10ms），让时间稍微前进但不超过完整窗口
+		// 此时旧窗口的 5 条时间戳仍在队列里（还没滑出 200ms 窗口）
+		Thread.sleep(10);
+
+		// 在这 10ms 后立刻再打 5 条：滑动窗口下必须全部拒绝
+		// （否则就是边界突刺 bug）——旧版固定窗口会因窗口重置而放行
+		for (int i = 0; i < 5; i++) {
+			assertFalse(limiter.tryAcquire(),
+					"滑动窗口边界后第 " + (i + 1) + " 条应被拒绝（旧时间戳仍在窗口内）");
+		}
+
+		// 等待到原 5 条时间戳完全滑出窗口（再等 200ms）
+		Thread.sleep(200);
+
+		// 此时窗口已彻底清空，新请求应能正常放行
+		for (int i = 0; i < 5; i++) {
+			assertTrue(limiter.tryAcquire(), "完全过期后第 " + (i + 1) + " 条应放行");
+		}
 	}
 }

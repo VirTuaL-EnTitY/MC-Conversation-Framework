@@ -66,23 +66,35 @@ public final class LogExporter {
 				// 为什么用 String.contains 而不是正则 .*\\[MCCF\\].*：这里只是固定
 				// 子串匹配，contains 是 JDK 内部优化的原生方法，省去了 Pattern 编译
 				// 和正则状态机的开销，在百万行级别日志上性能差距明显。
+				//
+				// 1.1.2 修复：旧版 forEach lambda 内的 IOException 只记一行 error 日志
+				// 后继续尝试写入，磁盘满时百万行日志会产生百万条 error 日志反向爆炸。
+				// 新版用 AtomicBoolean writeFailed 标志，首次写入失败后立即停止后续写入，
+				// 避免磁盘错误时产生日志风暴。最终结果消息里告知玩家"导出被中断"。
+				java.util.concurrent.atomic.AtomicBoolean writeFailed = new java.util.concurrent.atomic.AtomicBoolean(false);
 				try (Stream<String> lines = Files.lines(latestLog, StandardCharsets.UTF_8);
 					 BufferedWriter writer = Files.newBufferedWriter(mccfOnlyOutput, StandardCharsets.UTF_8,
 							 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
 					lines.filter(line -> line.contains("[MCCF]"))
 							.forEach(line -> {
+								if (writeFailed.get()) return; // 已失败，跳过后续行
 								try {
 									writer.write(line);
 									writer.write('\n');
 								} catch (IOException e) {
-									// forEach 的 lambda 不能直接抛 IOException，这里包一层。
-									// 实际写入失败概率极低（磁盘满才会触发），交给外层 catch 兜底不现实，
-									// 只能记录日志后继续——部分行丢失也比整个导出崩溃好。
-									MCCF.LOGGER.error("[MCCF] Failed to write a log line during export.", e);
+									// 首次失败：记一次 error 日志，设标志位让后续行直接跳过。
+									// 不再为每行重复记日志——磁盘错误时百万行日志的反向爆炸
+									// 比导出失败本身更糟糕。
+									writeFailed.set(true);
+									MCCF.LOGGER.error("[MCCF] Log export write failed, aborting remaining lines.", e);
 								}
 							});
 				}
-				resultMessage.append("MCCF log: ").append(mccfOnlyOutput.getFileName());
+				if (writeFailed.get()) {
+					resultMessage.append("MCCF log (PARTIAL, write aborted): ").append(mccfOnlyOutput.getFileName());
+				} else {
+					resultMessage.append("MCCF log: ").append(mccfOnlyOutput.getFileName());
+				}
 			}
 
 			if (mode == ExportMode.FULL_LOG || mode == ExportMode.BOTH) {

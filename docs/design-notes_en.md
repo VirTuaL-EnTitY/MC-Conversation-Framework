@@ -5,6 +5,48 @@
 
 ---
 
+## 1.1.2　QA report batch fix: Zhipu unregistered + network packet security + translation failure awareness + multiple UX improvements
+
+**Root cause - Zhipu not registered**: When Zhipu Provider was added in 0.15.0, `ProviderDefaults` / `ProviderFactory` / `MCCFConfig.defaultProviderConfigs()` / `ClientConfigState.PROVIDER_IDS` all correctly added zhipu, but `MCCF.registerAllProviders()` line 222 `List.of("openai", "claude", "gemini", "deepl", "kimi", "deepseek", "ollama")` was missing it. This caused:
+- Players **could see and select** Zhipu AI in the config UI (because ClientConfigState.PROVIDER_IDS contains zhipu)
+- Players **could fill in API Key and save** (because config.providers generates a config entry for zhipu by default)
+- But `setActiveProvider("zhipu")` could not find this Provider in TranslationService, **silently falling back to Mock**
+- The log only had one warn line: "Configured provider 'zhipu' not found, falling back to mock" — admins seeing it would think "config is wrong", not "code missed a line"
+
+This kind of "looks configured but actually doesn't work" bug is worse than having no feature at all, because players would repeatedly modify the config thinking they made a mistake. The root cause is that Provider registration is scattered across two places (runtime `registerAllProviders()` and UI `ClientConfigState.PROVIDER_IDS`) without a single source of truth constraint.
+
+**Why List.of literal instead of deriving from ProviderDefaults**: The ideal solution would be `for (String id : ProviderDefaults.all().keySet())` to automatically iterate all defined Providers, so adding a new Provider only requires one line in ProviderDefaults. But keeping the List.of literal has two considerations: (1) explicit listing makes review easier — you can see at a glance which Providers are registered; (2) iteration order of ProviderDefaults.all() under Map is unstable, which may affect the implicit convention of "Mock registered first for fallback". If Providers are still missed in the future, the derived approach should be considered.
+
+**Root cause - missing network packet length validation**: `PacketCodecs.STRING` does not limit string length at the Minecraft protocol layer — it's up to the caller to validate. `SubtitlePayload` and `UpdateConfigPayload` added validation early (`MAX_TEXT_LENGTH = 4096` / `MAX_JSON_LENGTH = 65536`), but `RequestModelsPayload` / `LanguageReportPayload` / `ConversationRosterPayload` decoder all missed it. This is a typical "early Payloads got validation, later ones forgot" omission — the team lacked a unified rule that "new Payloads must add length validation".
+
+**Why RequestModelsPayload's malicious packet risk is more severe**: This Payload carries apiKey + endpoint + providerId. A malicious client can construct a multi-MB JSON string transmitted via `PacketCodecs.STRING`. The server's `ConfigSyncHandler.handleModelsRequest` parses it with Gson, consuming large CPU and memory. **Key point**: Payload deserialization happens **before** op permission check — meaning malicious clients don't even need op permission to trigger server memory allocation. This is a real security vulnerability, not just an admin spam experience issue.
+
+**Why ConversationRosterPayload decoder validation must be before ArrayList construction**: Old code `int idCount = buf.readVarInt(); List<UUID> ids = new ArrayList<>(idCount);` passes idCount directly to ArrayList constructor for capacity pre-allocation. `new ArrayList<>(Integer.MAX_VALUE)` attempts to pre-allocate ~16GB memory, OOM-ing even if elements are never written. Validation must complete **before** ArrayList construction, otherwise the validation itself is too late. The constructor's `MAX_PARTICIPANTS` check (line 50) exists, but it throws `IllegalArgumentException` after ArrayList has been constructed — OOM already happened.
+
+**Why translation failure uses counting instead of directly telling players**: TranslationService.translate()'s exceptionally converts failures to source-text fallback returns, so callers always see successful futures — this is the design for "players at least see the original text instead of completely missing the message when translation fails". The cost is that callers cannot distinguish "translation succeeded and equals source" from "translation failed and fell back to source".
+
+A complete fix would require a `TranslationResult(text, success)` wrapper type, but that changes all TranslationService caller signatures — too broad. This version takes a compromise:
+1. Atomic counters let `/mccf status` show statistics — admins can perceive failure trends
+2. Client path (ClientOnlyChatTranslator) calls `provider.translate()` directly bypassing TranslationService, so exceptionally still triggers — add deduplicated player notification
+
+Server path players still cannot directly distinguish translated-equals-source from failure, but admins can check `/mccf status`. This is a three-tier solution: "admins perceive + client players perceive + server players rely on admin investigation".
+
+**Why ClientOnlyChatTranslator failure notification needs 60-second deduplication**: If every message fails during chat spam (e.g., API Key expired), notifying the player for each one would flood the chat bar — worse than silent failure. The dedup strategy uses the reason string as key, notifying only once per 60 seconds for the same reason. When switching Provider / Key changes the failure reason, the new reason notifies immediately — letting players perceive "the current failure is a new problem".
+
+**Why ClientOnlyTranslationConfig.save() invalidates Provider cache**: Old `ClientOnlyChatTranslator.getProvider()` cached Provider instances by providerId and never invalidated — players had to switch Provider and back to refresh after changing API Key. This limitation was too obscure; players would think the Key wasn't saved.
+
+The simplest invalidation point is `ClientOnlyTranslationConfig.save()` — the save path is singular (player clicks Save in config UI), and invalidating the cache after successful file write ensures "save = refresh". Why not compare fields every time in getProvider: real-time config change detection requires ProviderConfig to support "field change notifications" or field-by-field diff in getProvider — not worth the complexity.
+
+**Why RateLimiter upgraded from fixed window to sliding window**: The classic fixed-window problem is boundary spikes — under 5 req/sec limit, 5 at window end + 5 at new window start = 10 req/sec spike. For anomalous behavior like chat spam, the spike itself has limited impact; but for paid APIs like OpenAI / DeepL, a 2x spike can directly trigger upstream rate limits and temporarily ban the API Key — much worse than "occasional translation failure".
+
+Sliding window uses ArrayDeque to track timestamps of admitted requests, cleaning expired timestamps before each tryAcquire and checking queue length. Complexity increases only ~10 lines, but precision improves from "window-level" to "any continuous window-level". Rejected requests don't enter the queue — avoiding the semantic confusion of old version's "rejected also incrementAndGet".
+
+**Why first-join tip changed from in-memory static to persisted**: Old `tipped` was a static boolean, resetting on process restart — veteran players would be spammed by the same tip on every restart. Persisting to `client-mode.json`'s `tippedFirstJoin` field means veterans won't be prompted after restart. Upgrading to 1.1.2 will prompt **one more time** — intentional, to let upgrading users perceive the "tip now mentions ModMenu entry" improvement, then no more repeats.
+
+**Why the tip text now includes ModMenu entry**: Old text only said "go to key binds", but default key is unbound (`InputUtil.UNKNOWN_KEY`) — players must first bind a key then come back, too steep for newcomers. ModMenu is a more intuitive entry (click gear icon in Mods list), and all 9 language texts were updated simultaneously.
+
+---
+
 ## 1.1.1　Fix disable-thinking toggle + show-original-text changed to client-side personal preference
 
 **Bug 1: Root cause of disable-thinking toggle showing "off" after clicking "yes"**:

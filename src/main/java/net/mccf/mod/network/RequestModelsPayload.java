@@ -19,6 +19,26 @@ import net.mccf.mod.MCCF;
  */
 public record RequestModelsPayload(String json) implements CustomPayload {
 
+	/**
+	 * json 字段的最大字符数。
+	 *
+	 * 为什么必须限制：{@code PacketCodecs.STRING} 本身不限制长度，恶意客户端
+	 * （甚至不需要 op 权限——Payload 的反序列化发生在 op 权限校验**之前**）
+	 * 可以构造数 MB 的 JSON 字符串，服务端用 Gson 解析时会消耗大量 CPU 和内存。
+	 * 与 {@link UpdateConfigPayload#MAX_JSON_LENGTH} 对齐设 65536，已足以容纳
+	 * 任意合理的 providerId + apiKey + endpoint 组合（API Key 通常不超过 200 字符，
+	 * endpoint 不超过 500 字符，整个 JSON 远低于 64KB）。
+	 */
+	private static final int MAX_JSON_LENGTH = 65536;
+
+	public RequestModelsPayload {
+		if (json != null && json.length() > MAX_JSON_LENGTH) {
+			throw new IllegalArgumentException(
+					"RequestModelsPayload json exceeds max length " + MAX_JSON_LENGTH +
+					" (was " + json.length() + ")");
+		}
+	}
+
 	public static final CustomPayload.Id<RequestModelsPayload> ID =
 			new CustomPayload.Id<>(Identifier.of(MCCF.MOD_ID, "request_models"));
 

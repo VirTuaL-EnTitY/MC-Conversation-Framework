@@ -15,12 +15,13 @@ import static net.minecraft.server.command.CommandManager.literal;
  * {@code /mccf} 管理命令树。
  *
  * 子命令：
- *   /mccf status                        查看当前活跃 Conversation 数量、Provider 状态
+ *   /mccf status                        查看当前活跃 Conversation 数量、Provider 状态、翻译统计
  *   /mccf provider list                 列出所有已注册的翻译 Provider
  *   /mccf provider set <id>             切换当前使用的翻译 Provider
  *   /mccf dictionary add <term> <lang> <translation>   添加词典条目
  *   /mccf dictionary remove <term>      移除词典条目
  *   /mccf reload                        重新加载配置与词典
+ *   /mccf stats reset                   重置翻译成功/失败计数（用于排查后重新观察）
  *
  * 均要求 op 权限等级 2（服务器管理员），因为这些操作会影响所有玩家的翻译体验。
  */
@@ -48,18 +49,38 @@ public class MCCFCommand {
 										.then(argument("term", StringArgumentType.string())
 												.executes(MCCFCommand::removeDictionaryEntry))))
 						.then(literal("reload").executes(MCCFCommand::reload))
+						.then(literal("stats")
+								.then(literal("reset").executes(MCCFCommand::resetStats)))
 				));
 	}
 
 	private static int status(com.mojang.brigadier.context.CommandContext<ServerCommandSource> ctx) {
 		int activeConversations = MCCF.getConversationManager().getActiveConversationCount();
-		String provider = MCCF.getTranslationService().getActiveProvider() != null
-				? MCCF.getTranslationService().getActiveProvider().getDisplayName()
+		TranslationService service = MCCF.getTranslationService();
+		String provider = service.getActiveProvider() != null
+				? service.getActiveProvider().getDisplayName()
 				: "(none)";
 
+		// 1.1.2 新增：翻译成功/失败统计，让管理员能感知翻译服务的健康度。
+		// 失败次数 > 0 时管理员应主动查 logs/latest.log 里的 [MCCF] 级别 error
+		// 行定位根因（通常是 API Key 失效、限流、网络故障）。
+		long success = service.getSuccessCount();
+		long failure = service.getFailureCount();
+		long total = success + failure;
+		double successRate = total > 0 ? (success * 100.0 / total) : 100.0;
+
 		ctx.getSource().sendFeedback(() -> Text.literal(
-				"MCCF status | active conversations: %d | provider: %s".formatted(activeConversations, provider)
+				"MCCF status | active conversations: %d | provider: %s | translations: %d ok / %d failed (%.1f%% success)"
+						.formatted(activeConversations, provider, success, failure, successRate)
 		), false);
+		return 1;
+	}
+
+	private static int resetStats(com.mojang.brigadier.context.CommandContext<ServerCommandSource> ctx) {
+		MCCF.getTranslationService().resetFailureStats();
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				"MCCF translation stats reset. Subsequent /mccf status will show counts since this reset."
+		), true);
 		return 1;
 	}
 

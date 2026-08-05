@@ -27,6 +27,22 @@ public class TranslationService {
 	private volatile TranslationProvider activeProvider;
 
 	/**
+	 * 翻译失败累计计数（自上次 reset 起算）。
+	 *
+	 * 1.1.2 新增：解决"翻译失败时玩家和管理员完全无感知"的问题。
+	 * TranslationService.translate() 的 exceptionally 把失败转成原文 fallback 返回，
+	 * 上层调用方收到的 future 永远成功，无法直接区分"翻译成功且译文等于原文"
+	 * 和"翻译失败回退原文"。这里通过原子计数器累计失败次数，让 /mccf status
+	 * 命令能展示近期失败统计，管理员可据此主动排查（而不是只能翻日志）。
+	 *
+	 * 计数是单调递增的，不会因查询而清零——管理员看到的总是"自服务器启动以来
+	 * 的累计失败数"。需要清零时调用 {@link #resetFailureStats()}，但目前没有
+	 * 自动清零的触发点（重启自然清零），由管理员手动决定何时重置。
+	 */
+	private final java.util.concurrent.atomic.AtomicLong failureCount = new java.util.concurrent.atomic.AtomicLong(0);
+	private final java.util.concurrent.atomic.AtomicLong successCount = new java.util.concurrent.atomic.AtomicLong(0);
+
+	/**
 	 * 翻译结果缓存的大小上限。超过此大小会触发 LRU 淘汰——最久未访问的条目
 	 * 被 {@link LruCache#removeEldestEntry} 自动移除（见 {@link #putToCache}）。
 	 *
@@ -209,17 +225,19 @@ public class TranslationService {
 
 		// 成功才写缓存。用 completedFuture 包装结果，避免后续命中时还附带 whenComplete/
 		// exceptionally 链——命中项就是"已经完成的纯结果 future"，开销最小。
-		translation.whenComplete((result, ex) -> {
-			if (ex == null) {
-				putToCache(cacheKey, CompletableFuture.completedFuture(result));
-			}
-		});
+	translation.whenComplete((result, ex) -> {
+		if (ex == null) {
+			putToCache(cacheKey, CompletableFuture.completedFuture(result));
+			successCount.incrementAndGet();
+		}
+	});
 
-		// 失败时返回原文（不写入缓存，下次请求可重试）
-		return translation.exceptionally(ex -> {
-			MCCF.LOGGER.error("[MCCF] Translation failed, falling back to source text.", ex);
-			return sourceText;
-		});
+	// 失败时返回原文（不写入缓存，下次请求可重试）
+	return translation.exceptionally(ex -> {
+		MCCF.LOGGER.error("[MCCF] Translation failed, falling back to source text.", ex);
+		failureCount.incrementAndGet();
+		return sourceText;
+	});
 	}
 
 	private CompletableFuture<String> doTranslate(String sourceText, String sourceLang, String targetLang,
@@ -278,5 +296,27 @@ public class TranslationService {
 	/** 清空翻译缓存（例如词典或 Provider 变更后调用，避免脏数据）。 */
 	public void clearCache() {
 		cache.clear();
+	}
+
+	/**
+	 * 自服务器启动以来的翻译失败次数。供 {@code /mccf status} 命令展示，
+	 * 让管理员能感知"翻译服务正在出问题"而不是只能从玩家反馈得知。
+	 */
+	public long getFailureCount() {
+		return failureCount.get();
+	}
+
+	/**
+	 * 自服务器启动以来的翻译成功次数。与 {@link #getFailureCount()} 配对，
+	 * 管理员可计算成功率判断翻译服务整体健康度。
+	 */
+	public long getSuccessCount() {
+		return successCount.get();
+	}
+
+	/** 重置失败/成功计数。供管理员在排查后手动清零，方便观察"接下来一段时间的失败率"。 */
+	public void resetFailureStats() {
+		failureCount.set(0);
+		successCount.set(0);
 	}
 }
