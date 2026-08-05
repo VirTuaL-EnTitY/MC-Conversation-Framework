@@ -53,3 +53,10 @@ run/config/mccf/
 .env
 .env.local
 .trae/
+
+# ===== CodeBuddy 工作记忆（AI 跨会话上下文，不属于项目源码）=====
+# 这里的文件是 AI 助手的工作记忆，包含项目决策脉络、协作约定等元信息，
+# 不应入库。1.1.2 起被错误提交过一次，软删除后不再跟踪；后续会硬删除
+# 彻底清理历史。.codebuddy/ 下其他子目录（如 plugins/config）按需单独
+# 决定是否跟踪，这里只排除 memory 子目录。
+.codebuddy/memory/
