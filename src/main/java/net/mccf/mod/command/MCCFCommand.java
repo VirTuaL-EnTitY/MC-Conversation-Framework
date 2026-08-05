@@ -64,23 +64,23 @@ public class MCCFCommand {
 		// 1.1.2 新增：翻译成功/失败统计，让管理员能感知翻译服务的健康度。
 		// 失败次数 > 0 时管理员应主动查 logs/latest.log 里的 [MCCF] 级别 error
 		// 行定位根因（通常是 API Key 失效、限流、网络故障）。
+		// 1.1.3 起改用 Text.translatable 本土化输出，方便非中文玩家阅读。
 		long success = service.getSuccessCount();
 		long failure = service.getFailureCount();
 		long total = success + failure;
 		double successRate = total > 0 ? (success * 100.0 / total) : 100.0;
 
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				"MCCF status | active conversations: %d | provider: %s | translations: %d ok / %d failed (%.1f%% success)"
-						.formatted(activeConversations, provider, success, failure, successRate)
+		ctx.getSource().sendFeedback(() -> Text.translatable(
+				"command.mccf.status",
+				activeConversations, provider, success, failure,
+				String.format("%.1f", successRate)
 		), false);
 		return 1;
 	}
 
 	private static int resetStats(com.mojang.brigadier.context.CommandContext<ServerCommandSource> ctx) {
 		MCCF.getTranslationService().resetFailureStats();
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				"MCCF translation stats reset. Subsequent /mccf status will show counts since this reset."
-		), true);
+		ctx.getSource().sendFeedback(() -> Text.translatable("command.mccf.stats.reset"), true);
 		return 1;
 	}
 

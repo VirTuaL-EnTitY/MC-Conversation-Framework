@@ -72,6 +72,21 @@ public class MCCFConfigScreen extends Screen {
 	private ButtonWidget serverTabButton;
 	private ButtonWidget localTabButton;
 
+	/**
+	 * 跨 init() 重建保留的"上次选中 Provider"——分 server/local 两个标签页各自独立保存。
+	 *
+	 * 1.1.3 修复"切换 Provider 后获取模型列表回来 Provider 切回 activeProvider"和
+	 * "强制关闭思考警告屏幕点'是'后仍显示关"两个 bug。根因是 init() 重建时 new 了一个
+	 * 全新 Panel 实例，新 Panel 的 selectedProvider 通过 initialSelectedProvider() 读
+	 * state.activeProvider，丢失了玩家在旧 Panel 里临时切换查看的 selectedProvider。
+	 *
+	 * 修复：init() 重建前先读出旧 Panel 的 selectedProvider 存到这两个字段，新 Panel
+	 * 构造后通过 setPreservedSelectedProvider() 传回去。这样 ConfirmScreen / ModelSelectionScreen
+	 * 关闭触发 init() 重建时，玩家选中的 Provider 能正确保留。
+	 */
+	private String lastSelectedServerProvider;
+	private String lastSelectedLocalProvider;
+
 	private enum Tab { SERVER, LOCAL }
 
 	public MCCFConfigScreen(Screen parent) {
@@ -108,10 +123,28 @@ public class MCCFConfigScreen extends Screen {
 				.build();
 		addDrawableChild(localTabButton);
 
+		// 1.1.3 修复：重建前先从旧 Panel 读出 selectedProvider 保留下来。
+		// init() 可能在窗口大小变化、ConfirmScreen/ModelSelectionScreen 关闭等场景被触发，
+		// 每次都会 new 新 Panel，如果不保留 selectedProvider，玩家临时切换查看的 Provider
+		// 会丢失（变回 activeProvider），导致强制关闭思考开关"看起来没生效"和获取模型列表
+		// 后"Provider 切回 DeepSeek 丢失更改"两个 bug。
+		if (serverPanel != null) {
+			lastSelectedServerProvider = serverPanel.getSelectedProvider();
+		}
+		if (localPanel != null) {
+			lastSelectedLocalProvider = localPanel.getSelectedProvider();
+		}
+
 		serverPanel = new ServerConfigPanel(this, contentLeft, contentTop, contentRight, contentBottom, this.height / 2);
+		if (lastSelectedServerProvider != null) {
+			serverPanel.setPreservedSelectedProvider(lastSelectedServerProvider);
+		}
 		serverPanel.init(this::addDrawableChild);
 
 		localPanel = new LocalConfigPanel(this, contentLeft, contentTop, contentRight, contentBottom, this.height / 2);
+		if (lastSelectedLocalProvider != null) {
+			localPanel.setPreservedSelectedProvider(lastSelectedLocalProvider);
+		}
 		localPanel.init(this::addDrawableChild);
 
 		applyTabVisibility();

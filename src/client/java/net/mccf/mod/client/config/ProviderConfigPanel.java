@@ -43,6 +43,20 @@ public abstract class ProviderConfigPanel {
 	private final List<ClickableWidget> ownedWidgets = new ArrayList<>();
 	/** 当前标签页是否可见——子类计算字段 active 时应该与"字段本身是否可编辑"做 AND。 */
 	protected boolean tabVisible = true;
+	/**
+	 * 外部传入的"上次选中 Provider"，用于跨 Screen 重建保留选中状态。
+	 *
+	 * 1.1.3 修复"切换 Provider 后获取模型列表，回来 Provider 切回 activeProvider 丢失更改"
+	 * 和"强制关闭思考警告屏幕点'是'后仍显示关"两个 bug 的核心字段——这两个 bug 同根因：
+	 * ModelSelectionScreen / ConfirmScreen 关闭后 setScreen 触发 MCCFConfigScreen.init() 重建，
+	 * 新 panel 的 selectedProvider 通过 initialSelectedProvider() 读 state.activeProvider，
+	 * 丢失了玩家在旧 panel 里临时切换查看的 selectedProvider。
+	 *
+	 * 修复方式：MCCFConfigScreen 在 init() 重建前把旧 panel 的 selectedProvider 读出来，
+	 * 传给新 panel 的这个字段；init() 时优先用这个值，没有才 fallback 到 initialSelectedProvider()。
+	 * 玩家首次打开界面时这个值为 null，行为和旧版一致（用 activeProvider）。
+	 */
+	private String preservedSelectedProvider;
 
 	protected ProviderConfigPanel(Screen screen, int left, int top, int right, int bottom, int screenCenterY) {
 		this.screen = screen;
@@ -63,6 +77,19 @@ public abstract class ProviderConfigPanel {
 
 	/** 初始化时列表应该选中哪个 Provider。 */
 	protected abstract String initialSelectedProvider();
+
+	/**
+	 * 设置外部保留的 selectedProvider——由 MCCFConfigScreen 在 init() 重建前调用，
+	 * 把旧 panel 的 selectedProvider 传给新 panel，避免重建后丢失玩家临时切换的查看状态。
+	 */
+	public void setPreservedSelectedProvider(String providerId) {
+		this.preservedSelectedProvider = providerId;
+	}
+
+	/** 获取当前 selectedProvider，供 MCCFConfigScreen 在重建前读取保留。 */
+	public String getSelectedProvider() {
+		return selectedProvider;
+	}
 
 	/** 当前"已启用/生效中"的 Provider id——决定列表里哪一项打勾。 */
 	protected abstract String activeProviderId();
@@ -92,7 +119,13 @@ public abstract class ProviderConfigPanel {
 		// （详见本类构造器注释），这里 deferred 赋值既绕开该坑，又不改变"列表初始选中项"
 		// 的语义。selectedProvider 在构造完成到 init() 之间是 null，但这段窗口内没有任何
 		// 代码读取它（MCCFConfigScreen.init() 是构造完立刻 init()），所以安全。
-		this.selectedProvider = initialSelectedProvider();
+		//
+		// 1.1.3 修复：优先使用 preservedSelectedProvider（外部保留的值）——这个值由
+		// MCCFConfigScreen 在 init() 重建前从旧 panel 读出传入，用于跨 Screen 重建保留
+		// 玩家临时切换查看的 Provider。首次打开时为 null，fallback 到 initialSelectedProvider()。
+		this.selectedProvider = preservedSelectedProvider != null
+				? preservedSelectedProvider
+				: initialSelectedProvider();
 
 		listWidget = new ProviderListWidget(left, top, LIST_WIDTH, bottom - top,
 				ClientConfigState.PROVIDER_IDS, selectedProvider, this::activeProviderId,

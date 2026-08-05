@@ -369,6 +369,16 @@ src/client/java/net/mccf/mod/client/
 
 > 决策分析（根因、方案论证、取舍）已移至 [docs/design-notes.md](docs/design-notes.md)（[英文版](docs/design-notes_en.md)），本章节只保留纯版本更新。
 
+### 2026-08-05　1.1.3 修复：切换 Provider 丢失更改 + 强制关闭思考警告屏幕点"是"不生效 + 命令本土化
+
+- **核心 bug 修复 - 切换 Provider 后操作丢失**：玩家从 DeepSeek 切换到 OpenAI 查看 → 点"获取模型列表"进入 ModelSelectionScreen → 关闭后回到主界面，Provider 列表选中的切回 DeepSeek，丢失了切换到 OpenAI 的所有更改。根因：`MCCFConfigScreen.init()` 在 `ModelSelectionScreen`/`ConfirmScreen` 关闭后被触发重建，`new ServerConfigPanel(...)` 创建全新实例，新实例的 `selectedProvider` 通过 `initialSelectedProvider()` 读 `state.activeProvider`，丢失了玩家在旧 panel 里临时切换查看的 `selectedProvider`。
+- **同根因 bug 修复 - 强制关闭思考点"是"不生效**：玩家选某 Provider → 点开 disableThinking 开关 → 警告屏幕点"是" → `state.getOrCreate(selectedProvider).disableThinking = true` 正确写入 state → 但 `setScreen` 触发 init 重建 → 新 panel 的 `selectedProvider = state.activeProvider`（可能不是玩家刚改的那个）→ 新 panel 显示的是 activeProvider 的 disableThinking（false）→ 玩家看到"没生效"。和上面是同一根因。
+- **修复方案**：`MCCFConfigScreen` 加 `lastSelectedServerProvider` / `lastSelectedLocalProvider` 字段，`init()` 重建前从旧 panel 读出 `selectedProvider` 保留，新 panel 构造后通过 `setPreservedSelectedProvider()` 传回去。`ProviderConfigPanel.init()` 优先使用 preserved 值，没有才 fallback 到 `initialSelectedProvider()`。同时 `setModelFromSelection` 改用方法参数 providerId 写入 state，不依赖 panel 实例的 selectedProvider 字段。
+- **命令本土化**：`/mccf status` 和 `/mccf stats reset` 的输出从英文硬编码改为 `Text.translatable()`，9 种语言文件新增 `command.mccf.status` 和 `command.mccf.stats.reset` 翻译键。
+- **仓库整理**：`.gitignore` 添加 `.codebuddy/memory/` 排除规则；`git rm --cached` 移除已误提交的 `.codebuddy/memory/{2026-08-05.md,MEMORY.md}`（AI 工作记忆，不属于项目源码）。软删除完成，硬删除（filter-repo 重写历史彻底清理）待后续统一执行。
+
+版本号 `1.1.2` → `1.1.3`。决策分析见 [docs/design-notes.md](docs/design-notes.md)。
+
 ### 2026-08-05　1.1.2 修复：Zhipu 未注册 + 网络包长度校验 + 翻译失败感知 + 多项 QA 问题修复
 
 - **致命 bug 修复**：`MCCF.registerAllProviders()` 漏注册 `"zhipu"`，导致选了智谱 AI 后服务端找不到该 Provider 静默 fallback 到 Mock——配置界面看起来配好了但实际完全没翻译。该 bug 从 0.15.0 加入智谱起跨越多个版本无人发现，根因是 ProviderDefaults/ProviderFactory/ClientConfigState 都包含了 zhipu（玩家界面能正常看到/选择/填 Key），唯独运行时注册表漏了。

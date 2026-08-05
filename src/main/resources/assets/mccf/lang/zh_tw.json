@@ -3,6 +3,8 @@
   "command.mccf.dictionary.removed": "已移除詞典條目：%s",
   "command.mccf.provider.set": "翻譯提供者已設定為：%s",
   "command.mccf.reload": "MCCF 設定已重新載入。",
+  "command.mccf.status": "MCCF 狀態 | 活躍對話數：%d | 目前提供者：%s | 翻譯統計：%d 成功 / %d 失敗（成功率 %s%%）",
+  "command.mccf.stats.reset": "翻譯統計已重設。後續 /mccf status 將顯示自本次重設以來的計數。",
   "key.category.mccf.main": "MC 交流框架 (MCCF)",
   "key.mccf.open_config": "開啟 MCCF 設定",
   "key.mccf.open_history": "開啟聊天歷史記錄",

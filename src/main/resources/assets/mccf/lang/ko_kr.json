@@ -3,6 +3,8 @@
   "command.mccf.dictionary.removed": "사전 항목 제거됨: %s",
   "command.mccf.provider.set": "번역 프로바이더가 설정됨: %s",
   "command.mccf.reload": "MCCF 설정을 다시 불러왔습니다.",
+  "command.mccf.status": "MCCF 상태 | 활성 대화 수: %d | 프로바이더: %s | 번역 통계: %d 성공 / %d 실패 (성공률 %s%%)",
+  "command.mccf.stats.reset": "번역 통계가 초기화되었습니다. 이후 /mccf status는 이번 초기화 이후의 카운트를 표시합니다.",
   "key.category.mccf.main": "MC Conversation Framework",
   "key.mccf.open_config": "MCCF 설정 열기",
   "key.mccf.open_history": "채팅 기록 열기",

@@ -3,6 +3,8 @@
   "command.mccf.dictionary.removed": "辞書エントリを削除しました：%s",
   "command.mccf.provider.set": "翻訳プロバイダーを設定しました：%s",
   "command.mccf.reload": "MCCF の設定を再読み込みしました。",
+  "command.mccf.status": "MCCF ステータス | アクティブな会話数：%d | プロバイダー：%s | 翻訳統計：%d 成功 / %d 失敗（成功率 %s%%）",
+  "command.mccf.stats.reset": "翻訳統計をリセットしました。以降の /mccf status は今回のリセット以降のカウントを表示します。",
   "key.category.mccf.main": "MC Conversation Framework",
   "key.mccf.open_config": "MCCF 設定を開く",
   "key.mccf.open_history": "チャット履歴を開く",

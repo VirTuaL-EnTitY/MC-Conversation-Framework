@@ -3,6 +3,8 @@
   "command.mccf.dictionary.removed": "Entrée de dictionnaire supprimée : %s",
   "command.mccf.provider.set": "Fournisseur de traduction défini sur : %s",
   "command.mccf.reload": "Configuration de MCCF rechargée.",
+  "command.mccf.status": "État MCCF | conversations actives : %d | fournisseur : %s | traductions : %d ok / %d échouées (%s%% succès)",
+  "command.mccf.stats.reset": "Statistiques de traduction réinitialisées. Le prochain /mccf status affichera les compteurs depuis cette réinitialisation.",
   "key.category.mccf.main": "MC Conversation Framework",
   "key.mccf.open_config": "Ouvrir les réglages MCCF",
   "key.mccf.open_history": "Ouvrir l'historique du chat",

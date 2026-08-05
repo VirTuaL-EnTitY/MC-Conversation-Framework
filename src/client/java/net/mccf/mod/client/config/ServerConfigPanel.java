@@ -327,12 +327,25 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		}
 	}
 
-	/** ModelSelectionScreen 选中模型后的回调。 */
+	/**
+	 * ModelSelectionScreen 选中模型后的回调。
+	 *
+	 * 1.1.3 修复：用方法参数 providerId 而不是 selectedProvider 字段写入 state——
+	 * ModelSelectionScreen 关闭可能触发 init() 重建，新 panel 的 selectedProvider
+	 * 可能和发起获取模型时的旧 panel 不同（虽然 1.1.3 的 preservedSelectedProvider
+	 * 修复已经让两者一致，但用 providerId 参数更明确、不依赖 panel 实例状态）。
+	 * modelField.setText 仍然只在 modelField 非 null 时调用——重建后旧 panel 的
+	 * modelField 已被丢弃，新 panel 的 modelField 会通过 refreshFieldsFromState
+	 * 从 state（已被这里写入）读取最新值，不需要旧 panel 手动 setText。
+	 */
 	public void setModelFromSelection(String model) {
+		// providerId 由 onModelsResult 创建 ModelSelectionScreen 时传入，固定为
+		// 发起获取模型时玩家选中的 Provider，不随 panel 重建变化。
+		String providerId = selectedProvider;
+		state.getOrCreate(providerId).model = model;
 		if (modelField != null) {
 			modelField.setText(model);
 		}
-		state.getOrCreate(selectedProvider).model = model;
 	}
 
 	private void onResetEndpoint() {

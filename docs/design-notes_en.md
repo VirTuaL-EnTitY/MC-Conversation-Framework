@@ -5,6 +5,28 @@
 
 ---
 
+## 1.1.3　Fix switching Provider losing changes + disable-thinking "yes" not working + command localization
+
+**Root cause - two bugs, same root cause**: User reported "switching Provider then fetching model list, Provider reverts to DeepSeek losing changes" and "disable-thinking warning screen clicking 'yes' still shows off". Superficially two bugs, same root cause: `MCCFConfigScreen.init()` is triggered to rebuild after `ModelSelectionScreen`/`ConfirmScreen` close, `new ServerConfigPanel(...)` creates a fresh instance, and the new instance's `selectedProvider` reads `state.activeProvider` via `initialSelectedProvider()`, losing the `selectedProvider` the player temporarily switched to in the old panel.
+
+**Why ModelSelectionScreen and ConfirmScreen closing triggers init rebuild**: Both Screens return to MCCFConfigScreen via `setScreen(parentScreen)`. Minecraft's `setScreen` calls the target Screen's `init()` to reinitialize (window size may change, child widgets need rebuilding), so every setScreen back to MCCFConfigScreen triggers a full panel rebuild.
+
+**Why 1.1.1's disable-thinking fix looked correct but didn't work**: 1.1.1 placed `state.getOrCreate(selectedProvider).disableThinking = true` before `setScreen`, with comment "must update state before setScreen, otherwise init rebuild reads old value". This analysis was half right — state was correctly updated. But missed: **new panel's `selectedProvider` ≠ old panel's `selectedProvider`**. New panel reads `state.activeProvider`; if player selected a non-activeProvider (e.g., activeProvider is mock, player selected DeepSeek), new panel shows mock's disableThinking (false), not DeepSeek's (true). Player sees "still off", thinks 1.1.1 fix didn't work.
+
+**Why setModelFromSelection also needed fixing**: `onModelsResult` creates `ModelSelectionScreen` passing `this::setModelFromSelection` as callback. After ModelSelectionScreen closes triggering init rebuild, old panel's `this` reference still exists (lambda capture), but old panel's `modelField` is replaced by new panel. Old `setModelFromSelection` code `state.getOrCreate(selectedProvider).model = model` uses old panel's selectedProvider — although 1.1.3's preservedSelectedProvider fix makes old and new panel's selectedProvider consistent, using method parameter providerId is more explicit, not depending on panel instance state. `modelField.setText(model)` retained but with null check — after rebuild, old panel's modelField is discarded, new panel's modelField reads latest value from state via `refreshFieldsFromState`.
+
+**Fix approach - why Screen-level preservation instead of ClientConfigState persistence**:
+- Screen-level preservation (Option A): `MCCFConfigScreen` adds fields, reads old panel's `selectedProvider` before init rebuild, passes to new panel via `setPreservedSelectedProvider()`. Only valid within Screen lifecycle, resets to activeProvider on close-reopen.
+- ClientConfigState persistence (Option B): state adds `lastViewedProvider` field, `initialSelectedProvider()` reads it, preserved across Screen close-reopen.
+
+Option A chosen because: players closing and reopening config UI resetting selectedProvider to activeProvider is reasonable (new session), only need to preserve within Screen lifecycle. Option B pollutes state, and "last viewed Provider" is essentially UI temporary state, not configuration data.
+
+**Command localization**: `/mccf status` and `/mccf stats reset` output was English hardcoded `Text.literal(...)`, changed to `Text.translatable()` in 1.1.3. Note `successRate` uses `String.format("%.1f", successRate)` to pre-format as string before passing to translatable — because `Text.translatable`'s `%s` placeholder doesn't support `%f` float formatting, must convert to string first.
+
+**.codebuddy/memory exclusion**: AI working memory files were mistakenly committed to 1.1.2 commit, 1.1.3 soft-deletes (git rm --cached + .gitignore). Hard delete (filter-repo rewrite history to thoroughly clean) deferred to unified execution later, avoiding multiple force pushes.
+
+---
+
 ## 1.1.2　QA report batch fix: Zhipu unregistered + network packet security + translation failure awareness + multiple UX improvements
 
 **Root cause - Zhipu not registered**: When Zhipu Provider was added in 0.15.0, `ProviderDefaults` / `ProviderFactory` / `MCCFConfig.defaultProviderConfigs()` / `ClientConfigState.PROVIDER_IDS` all correctly added zhipu, but `MCCF.registerAllProviders()` line 222 `List.of("openai", "claude", "gemini", "deepl", "kimi", "deepseek", "ollama")` was missing it. This caused:

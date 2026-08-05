@@ -7,6 +7,28 @@
 
 ---
 
+## 1.1.3　修复切换 Provider 丢失更改 + 强制关闭思考点"是"不生效 + 命令本土化
+
+**根因分析 - 两个 bug 同根因**：用户报告"切换 Provider 后获取模型列表，回来 Provider 切回 DeepSeek 丢失更改"和"强制关闭思考警告屏幕点'是'后仍显示关"。表面是两个 bug，根因相同：`MCCFConfigScreen.init()` 在 `ModelSelectionScreen`/`ConfirmScreen` 关闭后被触发重建，`new ServerConfigPanel(...)` 创建全新实例，新实例的 `selectedProvider` 通过 `initialSelectedProvider()` 读 `state.activeProvider`，丢失了玩家在旧 panel 里临时切换查看的 `selectedProvider`。
+
+**为什么 ModelSelectionScreen 和 ConfirmScreen 关闭会触发 init 重建**：这两个 Screen 都通过 `setScreen(parentScreen)` 返回 MCCFConfigScreen。Minecraft 的 `setScreen` 会调用目标 Screen 的 `init()` 方法重新初始化（窗口尺寸可能变化、子控件需要重建），所以每次 setScreen 回到 MCCFConfigScreen 都会触发完整的 panel 重建。
+
+**为什么 1.1.1 的强制关闭思考修复看起来对但实际没用**：1.1.1 把 `state.getOrCreate(selectedProvider).disableThinking = true` 放在 `setScreen` 之前，注释说"必须先更新状态再 setScreen，否则 init 重建读到旧值"。这个分析对了一半——state 确实被正确更新了。但漏掉的是：**新 panel 的 `selectedProvider` 不等于旧 panel 的 `selectedProvider`**。新 panel 读的是 `state.activeProvider`，如果玩家选的不是 activeProvider（比如 activeProvider 是 mock，玩家选了 DeepSeek），新 panel 显示的是 mock 的 disableThinking（false），不是 DeepSeek 的（true）。玩家看到"还是关的"，以为 1.1.1 的修复没生效。
+
+**为什么 setModelFromSelection 也要改**：`onModelsResult` 创建 `ModelSelectionScreen` 时传入 `this::setModelFromSelection` 作为回调。ModelSelectionScreen 关闭触发 init 重建后，旧 panel 的 `this` 引用仍存在（lambda 捕获），但旧 panel 的 `modelField` 已被新 panel 取代。`setModelFromSelection` 旧代码 `state.getOrCreate(selectedProvider).model = model` 用的是旧 panel 的 selectedProvider——虽然 1.1.3 的 preservedSelectedProvider 修复让新旧 panel 的 selectedProvider 一致，但用方法参数 providerId 更明确，不依赖 panel 实例状态。`modelField.setText(model)` 仍保留，但加了 null 检查——重建后旧 panel 的 modelField 已被丢弃，新 panel 的 modelField 会通过 `refreshFieldsFromState` 从 state（已被写入）读取最新值。
+
+**修复方案 - 为什么选 Screen 级别保留而不是 ClientConfigState 持久化**：
+- Screen 级别保留（方案 A）：`MCCFConfigScreen` 加字段，`init()` 重建前从旧 panel 读出 `selectedProvider`，新 panel 构造后通过 `setPreservedSelectedProvider()` 传回去。只在 Screen 生命周期内有效，关闭重开重置为 activeProvider。
+- ClientConfigState 持久化（方案 B）：state 加 `lastViewedProvider` 字段，`initialSelectedProvider()` 读这个字段，跨 Screen 关闭重开也保留。
+
+选方案 A 的原因：玩家关闭配置界面再打开，selectedProvider 重置为 activeProvider 是合理的（新会话），只需在 Screen 生命周期内保留即可解决问题。方案 B 会污染 state，且"上次查看的 Provider"本质是 UI 临时状态，不属于配置数据。
+
+**命令本土化**：`/mccf status` 和 `/mccf stats reset` 的输出原本是英文硬编码 `Text.literal(...)`，1.1.3 改为 `Text.translatable()`。注意 `successRate` 用 `String.format("%.1f", successRate)` 预格式化成字符串再传给 translatable——因为 `Text.translatable` 的 `%s` 占位符不支持 `%f` 浮点格式化，必须先转成字符串。
+
+**.codebuddy/memory 排除**：AI 工作记忆文件被误提交到 1.1.2 commit，1.1.3 软删除（git rm --cached + .gitignore）。硬删除（filter-repo 重写历史彻底清理）待后续统一执行，避免多次 force push。
+
+---
+
 ## 1.1.2　QA 报告批量修复：Zhipu 未注册 + 网络包安全 + 翻译失败感知 + 多项 UX 改进
 
 **根因分析 - Zhipu 未注册**：0.15.0 加入智谱 Provider 时，`ProviderDefaults` / `ProviderFactory` / `MCCFConfig.defaultProviderConfigs()` / `ClientConfigState.PROVIDER_IDS` 都正确添加了 zhipu，但 `MCCF.registerAllProviders()` 第 222 行的 `List.of("openai", "claude", "gemini", "deepl", "kimi", "deepseek", "ollama")` 漏了。这导致：

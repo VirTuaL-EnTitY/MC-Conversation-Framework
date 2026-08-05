@@ -3,6 +3,8 @@
   "command.mccf.dictionary.removed": "Удалена запись словаря: %s",
   "command.mccf.provider.set": "Провайдер перевода установлен на: %s",
   "command.mccf.reload": "Конфигурация MCCF перезагружена.",
+  "command.mccf.status": "Статус MCCF | активных диалогов: %d | провайдер: %s | переводов: %d усп. / %d неудач. (%s%% успех)",
+  "command.mccf.stats.reset": "Статистика переводов сброшена. Последующий /mccf status покажет счётчики с момента этого сброса.",
   "key.category.mccf.main": "MC Conversation Framework",
   "key.mccf.open_config": "Открыть настройки MCCF",
   "key.mccf.open_history": "Открыть историю чата",
