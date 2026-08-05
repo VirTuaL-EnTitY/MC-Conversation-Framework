@@ -238,12 +238,13 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 
 		MinecraftClient.getInstance().setScreen(new ConfirmScreen(
 				confirmed -> {
-					MinecraftClient.getInstance().setScreen(screen);
+					// 必须先更新状态再 setScreen，见 ServerConfigPanel#onDisableThinkingToggled
+					// 同款注释——setScreen 触发 init 重建，重建时读 state/config 的值设置按钮
+					// 显示，所以状态更新必须在 setScreen 之前完成，否则按钮显示"关"不刷新。
 					if (confirmed) {
 						config.getOrCreate(selectedProvider).disableThinking = true;
-					} else {
-						button.setValue(false);
 					}
+					MinecraftClient.getInstance().setScreen(screen);
 				},
 				Text.translatable("mccf.config.disable_thinking_warning_title"),
 				Text.translatable("mccf.config.disable_thinking_warning_body")));

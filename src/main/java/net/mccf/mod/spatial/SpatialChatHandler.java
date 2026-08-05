@@ -235,18 +235,14 @@ public class SpatialChatHandler {
 
 			String targetLang = PlayerLanguageRegistry.getLanguage(listener.getUuid());
 
-			// 是否携带原文：VISIBLE（聊天栏）和 AUDIBLE（物品栏字幕）分别由独立的开关控制
-			// （showOriginalTextInChat / showOriginalText），互不影响——见 MCCFConfig 里
-			// 两个字段各自的注释说明，应用户明确要求分开配置。
-			boolean includeOriginal = "VISIBLE".equals(displayMode)
-					? config.showOriginalTextInChat
-					: config.showOriginalText;
-
-			translationService.translate(rawText, sourceLang, targetLang, contextMessages)
-					.thenAccept(translated -> {
-						String shownOriginal = includeOriginal ? rawText : "";
-						SubtitlePayload payload = new SubtitlePayload(
-								sender.getUuid(), speakerName, shownOriginal, translated, displayMode,
+		// 1.1.1 起，服务端始终在 originalText 里携带原文——是否显示原文不再是
+		// 服务端 op 配置，而是客户端个人偏好（ClientOnlyTranslationConfig 里
+		// 的 showOriginalText / showOriginalTextInChat），由客户端渲染时自行
+		// 判断。这样每个玩家可以独立决定要不要看原文，不受服务器管理员限制。
+		translationService.translate(rawText, sourceLang, targetLang, contextMessages)
+				.thenAccept(translated -> {
+					SubtitlePayload payload = new SubtitlePayload(
+								sender.getUuid(), speakerName, rawText, translated, displayMode,
 								conversationId, sourceLang, targetLang);
 						// 网络发送必须回到服务器主线程执行。
 						sender.getServer().execute(() -> {

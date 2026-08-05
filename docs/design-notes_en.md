@@ -5,6 +5,59 @@
 
 ---
 
+## 1.1.1　Fix disable-thinking toggle + show-original-text changed to client-side personal preference
+
+**Bug 1: Root cause of disable-thinking toggle showing "off" after clicking "yes"**:
+The `ConfirmScreen` callback had the code order wrong — it called
+`setScreen(screen)` to return to the config screen first, then updated
+`disableThinking = true`. `setScreen` triggers `MCCFConfigScreen.init()` which
+rebuilds all panel widgets, and during rebuild `refreshFieldsFromState` reads
+`disableThinking` from state to set the button display. Calling setScreen before
+updating state means init rebuild reads the old value false, so the button shows
+"off"; by the time state is updated to true, the button is already drawn and
+won't refresh. Fix: move the state update before `setScreen`. `LocalConfigPanel`
+had the exact same bug.
+
+**Why the cancel branch doesn't need `button.setValue(false)`**: init rebuild
+creates a brand new button widget; the `button` captured in the lambda is the old
+widget, operating on it is meaningless; the new button will correctly read from
+state (still false) and display "off".
+
+**Bug 2: Decision to change show-original-text from server op config to client-side
+personal preference**: Since 0.16.2, these two toggles were set to greyed-out
+non-selectable (`active=false`), only modifiable by editing `config.json`, and
+were server-side op config — all players shared the same value. User feedback
+indicated this didn't meet the requirement: each player should be able to
+independently decide whether to see the original text, without server/op
+restrictions. 1.1.1 migrated `showOriginalText` / `showOriginalTextInChat` from
+`MCCFConfig` (server config) to `ClientOnlyTranslationConfig` (client-side
+personal preference, stored in `client-only-config.json`).
+
+**Why the toggles stay in the "Server Config" tab**: Per user's explicit request.
+Although these toggles are semantically already client-side preferences, they
+belong to the same group of "translation display settings" as Provider config,
+and keeping them in their original position better matches the user's usage
+habits. The toggle's `active` only depends on `tabVisible` (not `canEdit`), so
+all players can toggle them, and changes take effect immediately and persist
+without needing to click "Save".
+
+**Root cause of AUDIBLE subtitles not showing original text**:
+`HotbarSubtitleRenderer.render()` only concatenated `translatedText()` and
+completely ignored `originalText()` — the server correctly sent the original
+text, `SubtitleManager` correctly stored it, but the renderer ignored it. 1.1.1
+fix: during rendering, decide whether to draw an additional line of original
+text based on `ClientOnlyTranslationConfig.showOriginalText` (format consistent
+with VISIBLE chat: `<name> original` + `⇄ translation`).
+
+**Design of server always sending original text**: `SpatialChatHandler.dispatchTo`
+no longer decides whether to fill `originalText` based on
+`config.showOriginalText` / `config.showOriginalTextInChat`; instead, it always
+fills in the original text. Whether to display it is entirely up to the client —
+this way different players can have different display preferences, and the server
+doesn't need to judge separately for each listener.
+
+---
+
 ## 1.1.0　Release workflow changed to fully manual trigger + GitHub Release restored to attach jar and sources jar
 
 **Why changed to fully manual trigger**: Releasing is an explicit action of "confirming this version is ready to ship," and should be executed by a person manually clicking "Run workflow" in the GitHub Actions interface, to avoid accidental triggers producing meaningless Releases or accidentally triggering compile validation while code is half-modified. Both triggers — push to main only doing compile validation, and push tag auto-publishing — were removed.

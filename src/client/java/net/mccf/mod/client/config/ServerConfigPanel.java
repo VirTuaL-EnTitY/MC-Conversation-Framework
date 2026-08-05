@@ -43,7 +43,9 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	private ButtonWidget fetchModelsButton;
 	private ButtonWidget clearApiKeyButton;
 	private ButtonWidget retryButton;
+	/** "字幕显示原文"开关——AUDIBLE 模式物品栏字幕是否同时显示原文和译文。客户端个人偏好，1.1.1 起从服务端配置迁移。 */
 	private net.minecraft.client.gui.widget.CyclingButtonWidget<Boolean> showOriginalTextButton;
+	/** "聊天栏显示原文"开关——VISIBLE 模式聊天栏是否同时显示原文和译文。客户端个人偏好。 */
 	private net.minecraft.client.gui.widget.CyclingButtonWidget<Boolean> showOriginalTextInChatButton;
 	/**
 	 * "强制关闭思考"开关——只在 selectedProvider 属于
@@ -103,12 +105,7 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	protected void buildRightPanel(int panelLeft, int panelTop, int panelRight, int panelBottom) {
 		int panelWidth = panelRight - panelLeft;
 		int fieldHeight = 20;
-		// 动态间距：8 行控件（高 20）+ 7 个间距——"显示原文"两个开关从并排一行
-		// 拆成各自一行后，总行数从 7 增至 8。被减数从 140 改成 160（= 8×20，控件
-		// 总高度），分母从 6 改成 7（间距数 = 行数-1）。0.16.2 首版只改了分母忘了
-		// 改被减数，导致 spacing 计算偏小、控件挤在一起，disableThinkingButton
-		// 和 showOriginalTextButton 的文字视觉上叠在一起，被误看成"第二个强制
-		// 关闭思考按钮"。
+		// 动态间距：8 行控件（高 20）+ 7 个间距。
 		int spacing = Math.max(22, Math.min(36, (panelBottom - panelTop - 160) / 7));
 		int y = panelTop;
 
@@ -151,23 +148,21 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 						(button, value) -> onDisableThinkingToggled(button, value)));
 		y += spacing;
 
-		// 两个"显示原文"开关各自占一整行——分别对应 AUDIBLE 字幕（物品栏上方）
-		// 和 VISIBLE 聊天栏，两者独立控制（见 MCCFConfig 里两个字段各自的注释，
-		// 应用户明确要求分开配置，避免只想让聊天栏更详细却连带影响字幕）。
-		// 早期版本这两个开关并排放在同一行（各占半宽），应用户反馈"变成一行"
-		// 的布局问题，0.16.2 起拆成各自一整行。
-		// 同时应用户要求，这两个开关在配置界面里设为灰色不可选（active=false），
-		// 仅作只读展示当前状态，实际值由配置文件 config/mccf/config.json 直接
-		// 修改——applyEditability 里会无条件置 active=false 覆盖 canEdit 判断。
-		showOriginalTextButton = own(net.minecraft.client.gui.widget.CyclingButtonWidget.onOffBuilder(state.showOriginalText)
+		// "字幕显示原文"和"聊天栏显示原文"——1.1.1 起从服务端 op 配置改为客户端
+		// 个人偏好，每个玩家独立决定要不要看原文，不受服务器/op 限制。开关直接读写
+		// ClientOnlyTranslationConfig（落盘到 client-only-config.json），立即生效
+		// 不需要点"保存"、不需要 op 权限。放在"服务端配置"标签页是因为这两个开关
+		// 在语义上是"翻译展示设置"，和 Provider 配置属于同一组展示场景。
+		ClientOnlyTranslationConfig localConfig = ClientOnlyTranslationConfig.get();
+		showOriginalTextButton = own(net.minecraft.client.gui.widget.CyclingButtonWidget.onOffBuilder(localConfig.showOriginalText)
 				.build(panelLeft, y, panelWidth, fieldHeight,
 						Text.translatable("mccf.config.show_original_audible"),
-						(button, value) -> state.showOriginalText = value));
+						(button, value) -> { localConfig.showOriginalText = value; localConfig.save(); }));
 		y += spacing;
-		showOriginalTextInChatButton = own(net.minecraft.client.gui.widget.CyclingButtonWidget.onOffBuilder(state.showOriginalTextInChat)
+		showOriginalTextInChatButton = own(net.minecraft.client.gui.widget.CyclingButtonWidget.onOffBuilder(localConfig.showOriginalTextInChat)
 				.build(panelLeft, y, panelWidth, fieldHeight,
 						Text.translatable("mccf.config.show_original_chat"),
-						(button, value) -> state.showOriginalTextInChat = value));
+						(button, value) -> { localConfig.showOriginalTextInChat = value; localConfig.save(); }));
 		y += spacing;
 
 		int halfWidth = (panelWidth - 8) / 2;
@@ -253,12 +248,10 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		fetchModelsButton.active = tabVisible && state.canEdit && supportsModelList;
 		clearApiKeyButton.active = tabVisible && state.canEdit && !isMock;
 		saveButton.active = tabVisible && state.canEdit;
-		// "显示原文"两个开关应用户要求设为灰色不可选——无论 op 与否、无论
-		// 标签页是否可见，都不能在界面里切换，仅作只读展示。实际值由
-		// config/mccf/config.json 直接修改。这里无条件置 false 覆盖 canEdit
-		// 判断（其它控件仍然走 tabVisible && canEdit 的常规逻辑）。
-		if (showOriginalTextButton != null) showOriginalTextButton.active = false;
-		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.active = false;
+		// "显示原文"两个开关是客户端个人偏好，不受 op 权限限制——只依赖标签页
+		// 可见性（非活动标签页的控件不可交互，见 0.16.2 重叠 bug 的修复注释）。
+		if (showOriginalTextButton != null) showOriginalTextButton.active = tabVisible;
+		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.active = tabVisible;
 		if (disableThinkingButton != null) {
 			disableThinkingButton.active = tabVisible && state.canEdit
 					&& ClientConfigState.THINKING_CAPABLE_PROVIDERS.contains(selectedProvider);
@@ -303,8 +296,12 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		}
 		refreshFieldsFromState();
 		applyEditability();
-		if (showOriginalTextButton != null) showOriginalTextButton.setValue(state.showOriginalText);
-		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.setValue(state.showOriginalTextInChat);
+		// 两个"显示原文"开关的值来自客户端偏好，不随服务端快照变化，但 init 重建后
+		// 需要重新同步按钮显示（init 会创建新 widget，初始值用的是构造时的值，
+		// 如果玩家在别的界面改过，这里要刷新到最新）。
+		ClientOnlyTranslationConfig localConfig = ClientOnlyTranslationConfig.get();
+		if (showOriginalTextButton != null) showOriginalTextButton.setValue(localConfig.showOriginalText);
+		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.setValue(localConfig.showOriginalTextInChat);
 		statusMessage = Text.translatable("mccf.config.saved");
 		statusColor = Colors.GREEN;
 	}
@@ -375,16 +372,19 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 
 		MinecraftClient.getInstance().setScreen(new net.minecraft.client.gui.screen.ConfirmScreen(
 				confirmed -> {
-					MinecraftClient.getInstance().setScreen(screen);
+					// 必须先更新状态，再 setScreen 切回配置界面——setScreen 会触发
+					// MCCFConfigScreen.init() 重建所有面板控件，重建时 refreshFieldsFromState
+					// 会从 state 读取 disableThinking 的值来设置按钮显示。如果先 setScreen
+					// 再改状态，init 重建读到的还是旧值 false，按钮就显示"关"；等状态改成
+					// true 时按钮已经画完了，不会再刷新——这就是"点'是'后仍显示关"的根因。
+					// 旧代码反过来了（先 setScreen 后改状态），1.1.1 修复。
+					// 取消分支不需要手动 button.setValue(false)——init 重建会创建全新的
+					// 按钮 widget，lambda 里捕获的 button 是旧 widget，操作它没有意义；
+					// 新按钮会从 state（仍是 false）正确读取并显示"关"。
 					if (confirmed) {
 						state.getOrCreate(selectedProvider).disableThinking = true;
-					} else {
-						// 取消：CyclingButtonWidget 在触发回调前已经把自己的显示值切成了
-						// "开"，这里需要手动改回"关"，否则界面显示和实际配置值会不一致
-						// （玩家看到按钮显示"开"，但 ClientProviderConfig.disableThinking
-						// 其实还是 false，下次切换 Provider 再切回来时会露馅）。
-						button.setValue(false);
 					}
+					MinecraftClient.getInstance().setScreen(screen);
 				},
 				Text.translatable("mccf.config.disable_thinking_warning_title"),
 				Text.translatable("mccf.config.disable_thinking_warning_body")));

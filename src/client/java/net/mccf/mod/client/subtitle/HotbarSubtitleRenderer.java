@@ -1,5 +1,6 @@
 package net.mccf.mod.client.subtitle;
 
+import net.mccf.mod.client.config.ClientOnlyTranslationConfig;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
@@ -57,10 +58,19 @@ public class HotbarSubtitleRenderer {
 
 		// 预先对所有字幕做换行处理，以便根据总行数计算起始 Y 坐标，保证多行字幕
 		// 整体仍然底对齐到物品栏上方
+		// 1.1.1 起，是否显示原文由客户端个人偏好决定（ClientOnlyTranslationConfig#
+		// showOriginalText）——服务端始终在 originalText 里携带原文，渲染时根据
+		// 本地偏好决定是否额外画一行原文。开启时每条字幕最多占 2 行（原文 + 译文），
+		// 关闭时只画译文 1 行。
+		boolean showOriginal = ClientOnlyTranslationConfig.get().showOriginalText;
 		List<List<String>> allLines = new ArrayList<>();
 		for (ActiveSubtitle subtitle : subtitles) {
-			String line = subtitle.speakerName() + ": " + subtitle.translatedText();
-			allLines.add(wrapForHotbar(textRenderer, line));
+			if (showOriginal && subtitle.originalText() != null && !subtitle.originalText().isBlank()) {
+				allLines.add(wrapForHotbar(textRenderer, subtitle.speakerName() + ": " + subtitle.originalText()));
+				allLines.add(wrapForHotbar(textRenderer, "⇄ " + subtitle.translatedText()));
+			} else {
+				allLines.add(wrapForHotbar(textRenderer, subtitle.speakerName() + ": " + subtitle.translatedText()));
+			}
 		}
 
 		int totalLines = 0;

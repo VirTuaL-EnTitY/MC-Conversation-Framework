@@ -188,13 +188,8 @@ public class MCCF implements ModInitializer {
 		config.conversationIdleTimeoutSeconds = fresh.conversationIdleTimeoutSeconds;
 		config.enableOcclusionCheck = fresh.enableOcclusionCheck;
 		config.activeProvider = fresh.activeProvider;
-		config.showOriginalText = fresh.showOriginalText;
-		// showOriginalTextInChat 是 0.12.0 新增的字段，当时 reload 漏了这一行，
-		// 导致 /mccf reload 无法重载这个配置项（管理员改完 config.json 跑
-		// reload 不生效，必须重启服务器）。1.0.0 修复——reload 的契约是
-		// "完整重载"，新增字段时必须同步更新这里的拷贝列表，否则会出现
-		// "改了不生效"的隐蔽 bug。
-		config.showOriginalTextInChat = fresh.showOriginalTextInChat;
+		// showOriginalText / showOriginalTextInChat 已移至客户端偏好（1.1.1），
+		// 不再由服务端配置控制，reload 不需要拷贝这两个字段。
 		config.providers = fresh.providers;
 
 		// 2. 重新从磁盘读取词典，原地清空再填充 entries。

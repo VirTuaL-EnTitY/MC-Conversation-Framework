@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.mccf.mod.MCCF;
 import net.mccf.mod.client.chat.ClientOnlyChatTranslator;
 import net.mccf.mod.client.config.ClientConfigState;
+import net.mccf.mod.client.config.ClientOnlyTranslationConfig;
 import net.mccf.mod.client.config.MCCFConfigScreen;
 import net.mccf.mod.client.mode.ClientOnlyModeManager;
 import net.mccf.mod.client.subtitle.HotbarSubtitleRenderer;
@@ -108,9 +109,8 @@ public class MCCFClient implements ClientModInitializer {
 						// 退回方案：旧服务端不认识 ModePreferencePayload，依旧会拦截原版聊天改发
 						// SubtitlePayload。客户端收不到 CHAT 事件，ClientOnlyChatTranslator 的 CHAT
 						// 监听器不会触发，只能从 SubtitlePayload 里拿文本走本地翻译。
-						// 优先用 originalText（原文）让本地 Provider 按玩家自己语言翻译；若服务端
-						// 没填原文（showOriginalText=false 的配置），退到 translatedText——
-						// 服务端译文也比啥都没有强，至少玩家能看到一句话。
+						// 优先用 originalText（原文）让本地 Provider 按玩家自己语言翻译；
+						// 1.1.1 起服务端始终携带原文，但兼容旧服务端时仍需退到 translatedText。
 						String sourceText = payload.originalText();
 						if (sourceText == null || sourceText.isBlank()) sourceText = payload.translatedText();
 						if (sourceText != null && !sourceText.isBlank()) {
@@ -127,14 +127,13 @@ public class MCCFClient implements ClientModInitializer {
 						// 的需求。AUDIBLE（看不到）依旧走 SubtitleManager → 物品栏上方字幕，
 						// 保持原时长（2.5~8s）不变。
 						//
-						// 是否显示原文：由服务端的 showOriginalTextInChat 开关决定——服务端只有开启
-						// 时才会在 originalText 里填入原文，关闭时这个字段是空字符串（见
-						// SpatialChatHandler#dispatchTo 的 includeOriginal 逻辑）。客户端不需要
-						// 自己知道这个开关的值，只需要看 originalText 是否非空即可决定展示格式：
-						// 非空时按 <名字> 原文 + ⇄ 译文 两行展示（模仿纯客户端模式 ClientOnlyChatTranslator
-						// 的追加格式，应用户明确要求"模仿一下客户端模式的那个字幕"）；为空时维持原来
-						// "仅译文一行"的格式，不产生视觉差异回归。
-						if (payload.originalText() != null && !payload.originalText().isBlank()) {
+						// 是否显示原文：1.1.1 起改为客户端个人偏好（ClientOnlyTranslationConfig#
+						// showOriginalTextInChat），不再由服务端 op 配置控制。服务端始终在
+						// originalText 里携带原文，客户端根据本地偏好决定是否额外追加一行原文。
+						// 开启时按 <名字> 原文 + ⇄ 译文 两行展示（模仿纯客户端模式
+						// ClientOnlyChatTranslator 的追加格式）；关闭时维持"仅译文一行"格式。
+						boolean showOriginal = ClientOnlyTranslationConfig.get().showOriginalTextInChat;
+						if (showOriginal && payload.originalText() != null && !payload.originalText().isBlank()) {
 							addVisibleToChatHud(payload.speakerName(), payload.originalText());
 							MinecraftClient.getInstance().inGameHud.getChatHud().addMessage(
 									Text.literal("⇄ " + payload.translatedText()).formatted(Formatting.GRAY));

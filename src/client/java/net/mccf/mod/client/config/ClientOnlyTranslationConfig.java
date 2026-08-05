@@ -38,6 +38,21 @@ public class ClientOnlyTranslationConfig {
 	public String activeProvider = "mock";
 	public Map<String, ClientProviderConfig> providers = new LinkedHashMap<>();
 
+	/**
+	 * 是否在物品栏上方字幕（AUDIBLE 模式）中同时显示原文和译文——客户端个人偏好，
+	 * 每个玩家独立决定，不受服务器/op 限制。1.1.1 起从服务端配置迁移到客户端。
+	 * 默认开启：AUDIBLE 字幕只显示译文时玩家无法对照原文，开启后能帮助理解翻译质量。
+	 */
+	public boolean showOriginalText = true;
+
+	/**
+	 * 是否在聊天栏（VISIBLE 模式）中同时显示原文和译文——客户端个人偏好。
+	 * 与 {@link #showOriginalText} 分开：两个字段各自独立控制一种展示场景，
+	 * 玩家可能只想让聊天栏更详细、不想让物品栏字幕变长，反之亦然。
+	 * 默认关闭：VISIBLE 消息默认只显示译文，与原版聊天体验一致。
+	 */
+	public boolean showOriginalTextInChat = false;
+
 	private static ClientOnlyTranslationConfig instance;
 
 	public static ClientOnlyTranslationConfig get() {

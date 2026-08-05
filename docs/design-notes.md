@@ -7,6 +7,45 @@
 
 ---
 
+## 1.1.1　修复强制关闭思考开关 + 显示原文改为客户端个人偏好
+
+**Bug 1：强制关闭思考开关点"是"后仍显示"关"的根因**：`ConfirmScreen` 的回调里
+代码顺序错了——先 `setScreen(screen)` 切回配置界面，后才更新
+`disableThinking = true`。`setScreen` 会触发 `MCCFConfigScreen.init()` 重建所有
+面板控件，重建时 `refreshFieldsFromState` 从 state 读取 `disableThinking` 的值
+来设置按钮显示。先 setScreen 再改状态意味着 init 重建读到的还是旧值 false，
+按钮就显示"关"；等状态改成 true 时按钮已经画完了，不会再刷新。修复：把状态
+更新移到 `setScreen` 之前。`LocalConfigPanel` 有完全相同的 bug。
+
+**为什么取消分支不需要 `button.setValue(false)`**：init 重建会创建全新的按钮
+widget，lambda 里捕获的 `button` 是旧 widget，操作它没有意义；新按钮会从 state
+（仍是 false）正确读取并显示"关"。
+
+**Bug 2：显示原文从服务端 op 配置改为客户端个人偏好的决策**：0.16.2 起这两个
+开关被设为灰色不可选（`active=false`），只能通过改 `config.json` 修改，且是
+服务端 op 配置——所有玩家共享同一个值。用户反馈这不符合需求：每个玩家应该能
+独立决定要不要看原文，不受服务器/op 限制。1.1.1 把 `showOriginalText` /
+`showOriginalTextInChat` 从 `MCCFConfig`（服务端配置）迁移到
+`ClientOnlyTranslationConfig`（客户端个人偏好，存 `client-only-config.json`）。
+
+**为什么开关保留在"服务端配置"标签页**：应用户明确要求。虽然这两个开关在
+语义上已经是客户端偏好，但它们和 Provider 配置属于同一组"翻译展示设置"，
+放在原位置更符合用户的使用习惯。开关的 `active` 只依赖 `tabVisible`（不依赖
+`canEdit`），所有玩家都能切换，切换后立即生效并落盘，不需要点"保存"。
+
+**AUDIBLE 字幕不显示原文的根因**：`HotbarSubtitleRenderer.render()` 只拼接
+`translatedText()`，完全没读 `originalText()`——服务端正确发送了原文、
+`SubtitleManager` 正确存储了原文，但渲染器忽略了。1.1.1 修复：渲染时根据
+`ClientOnlyTranslationConfig.showOriginalText` 决定是否额外画一行原文
+（格式与 VISIBLE 聊天栏一致：`<名字> 原文` + `⇄ 译文`）。
+
+**服务端始终发送原文的设计**：`SpatialChatHandler.dispatchTo` 不再根据
+`config.showOriginalText` / `config.showOriginalTextInChat` 决定是否填充
+`originalText`，而是始终填入原文。是否显示完全由客户端决定——这样不同玩家
+可以有不同的显示偏好，服务端不需要为每个听众单独判断。
+
+---
+
 ## 1.1.0　发布工作流改为纯手动触发 + GitHub Release 恢复附带 jar 和 sources jar
 
 **为什么改为纯手动触发**：发版是"确认这版可以发了"的显式动作，应该由人在

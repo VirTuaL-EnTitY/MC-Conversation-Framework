@@ -60,20 +60,8 @@ public class ClientConfigState {
 	/** 是否已经从服务端收到过至少一次快照（用于 Screen 判断是否还在等待数据）。 */
 	public boolean hasReceivedSnapshot = false;
 
-	/**
-	 * 是否在物品栏上方字幕（AUDIBLE 模式）中同时显示原文和译文——对应服务端
-	 * {@code MCCFConfig#showOriginalText}。从快照里读取展示当前状态，编辑后
-	 * 随 activeProvider 等字段一起提交。
-	 */
-	public boolean showOriginalText = true;
-
-	/**
-	 * 是否在聊天栏（VISIBLE 模式）中同时显示原文和译文——对应服务端
-	 * {@code MCCFConfig#showOriginalTextInChat}。与 {@link #showOriginalText}
-	 * 分开维护，理由同服务端注释：管理员可能只想让聊天栏显示原文，不想让
-	 * 物品栏字幕也变长。
-	 */
-	public boolean showOriginalTextInChat = false;
+	// showOriginalText / showOriginalTextInChat 已移至 ClientOnlyTranslationConfig
+	// 作为客户端个人偏好（1.1.1），不再从服务端快照同步、不随 UpdateConfigPayload 提交。
 
 	private static ClientConfigState instance;
 
@@ -91,9 +79,6 @@ public class ClientConfigState {
 		this.canEdit = root.has("canEdit") && root.get("canEdit").getAsBoolean();
 		this.activeProvider = root.has("activeProvider") ? root.get("activeProvider").getAsString() : "mock";
 		this.pendingActiveProvider = this.activeProvider;
-		this.showOriginalText = !root.has("showOriginalText") || root.get("showOriginalText").getAsBoolean();
-		this.showOriginalTextInChat = root.has("showOriginalTextInChat")
-				&& root.get("showOriginalTextInChat").getAsBoolean();
 
 		providers.clear();
 		if (root.has("providers")) {
@@ -140,8 +125,6 @@ public class ClientConfigState {
 	public String buildUpdateJson() {
 		JsonObject root = new JsonObject();
 		root.addProperty("activeProvider", pendingActiveProvider == null ? activeProvider : pendingActiveProvider);
-		root.addProperty("showOriginalText", showOriginalText);
-		root.addProperty("showOriginalTextInChat", showOriginalTextInChat);
 
 		JsonObject providersJson = new JsonObject();
 		for (Map.Entry<String, ClientProviderConfig> entry : providers.entrySet()) {

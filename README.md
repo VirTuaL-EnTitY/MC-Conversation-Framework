@@ -369,6 +369,16 @@ src/client/java/net/mccf/mod/client/
 
 > 决策分析（根因、方案论证、取舍）已移至 [docs/design-notes.md](docs/design-notes.md)（[英文版](docs/design-notes_en.md)），本章节只保留纯版本更新。
 
+### 2026-08-04　1.1.1 修复：强制关闭思考开关点"是"不生效 + 显示原文改为客户端个人偏好
+
+- 修复"强制关闭思考"开关点确认弹窗"是"后仍显示"关"的 bug（`ServerConfigPanel`/`LocalConfigPanel` 的 `onDisableThinkingToggled` 回调顺序错误）。
+- "字幕显示原文"和"聊天栏显示原文"从服务端 op 配置改为客户端个人偏好，每个玩家独立决定，不受服务器/op 限制。
+- 修复 AUDIBLE 字幕实际不显示原文的 bug（`HotbarSubtitleRenderer` 只渲染译文，未读 `originalText`）。
+- 两个开关保留在"服务端配置"标签页原位置，改为可编辑（不再灰色不可选），值存入 `client-only-config.json`。
+- `MCCFConfig`/`ConfigSyncHandler`/`ClientConfigState` 移除这两个字段，服务端 `SpatialChatHandler` 始终在 payload 中携带原文。
+
+版本号 `1.1.0` → `1.1.1`。决策分析见 [docs/design-notes.md](docs/design-notes.md)。
+
 ### 2026-08-03　1.1.0 调整：发布工作流改为纯手动触发 + GitHub Release 恢复附带 jar 和 sources jar
 
 - `.github/workflows/release.yml`：改为纯 `workflow_dispatch` 手动触发。手动触发后自动编译 + 测试 + 创建 GitHub Release + 自动打 `v*.*.*` tag + 上传 jar 和 sources jar。
