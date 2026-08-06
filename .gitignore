@@ -60,3 +60,4 @@ run/config/mccf/
 # 彻底清理历史。.codebuddy/ 下其他子目录（如 plugins/config）按需单独
 # 决定是否跟踪，这里只排除 memory 子目录。
 .codebuddy/memory/
+.codebuddy/

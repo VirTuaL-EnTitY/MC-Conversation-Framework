@@ -5,6 +5,71 @@
 
 ---
 
+## 1.1.5　Permission state machine + Mock warning + export log opens folder
+
+**Permission state machine design**: Server config tab visibility has three levels — HIDDEN (tab completely hidden), READ_ONLY (shown but greyed + yellow banner), EDITABLE (normal). Judgment order:
+1. Not in world (`client.player == null`, 500ms debounce) → HIDDEN
+2. Single-player world (`client.isIntegratedServerRunning()`) and `getPlayerList().size() <= 1` → HIDDEN (who are you translating with in single-player)
+3. Server doesn't have MCCF (`!canSend(RequestConfigPayload.ID)`) → HIDDEN
+4. Non-op (`!state.canEdit`) → READ_ONLY
+5. Otherwise → EDITABLE
+
+**Why single-player uses `getPlayerList().size() > 1` to detect "LAN open with someone joined"**: Minecraft has no direct API to detect "open to LAN". IntegratedServer is the same type before and after LAN open, `isOnlineMode()` is always false. The most reliable check is "has another player joined via LAN" — `getPlayerList().size() > 1` precisely reflects "is there cross-language communication need". Still hidden when LAN just opened but nobody joined yet (no translation need), shown after someone joins.
+
+**Why 500ms debounce**: User said "you can't open config during dimension switch" — so `client.player` normally doesn't go null during gameplay. But "just in case" add debounce for edge cases: player null for less than 500ms still counts as "in world", avoiding brief null state causing UI flicker. Player going from null to non-null takes effect immediately (no debounce needed).
+
+**Why real-time refresh uses render check + clearChildren + init**: Permission state changes (player getting opped, server installing MCCF, someone joining single-player LAN) have no dedicated events to listen to. Simplest approach: check `computeServerVisibility()` every frame in render, if different from `lastServerVisibility`, do `clearChildren() + init()` rebuild. Rebuild cost acceptable — only happens when state actually changes, not every frame.
+
+**Mock warning one-stage design**: Only pops confirmation on save — selecting Mock to view doesn't pop any popup.
+- Selecting Mock (onProviderSelected): only switches view, refreshes control visibility, no popup. Player may just want to glance at Mock's config; popup on select interrupts "just browsing around" behavior, too intrusive.
+- Saving Mock (onSave): popup ConfirmScreen when selectedProvider == Mock and activeProvider != Mock, confirming "really want to save Mock". Clicking "Yes" executes performSave.
+- Already saved Mock (activeProvider == Mock): no popup — player already confirmed, don't bother again.
+
+Why changed from two-stage to one-stage: initial design was "popup once on select + confirm again on save" (B1c two-stage), but popup on select repeatedly interrupts when player is just browsing different Providers — player switches to Mock to glance, switches away, switches back, each time must close popup. Save is the true intent expression of "actually want to enable Mock"; popping once on save is enough to intercept misuse without disturbing browsing.
+
+**Banner priority**: Mock red bar (saved) > Mock yellow bar (viewing only) > permission yellow bar (non-op). Only one banner shows at a time. Position: top of right config area (above API Key input), height adaptive — text wraps by width, banner height grows with line count (fontHeight+2 per line + 4px padding), avoiding long text (German/French/Russian) being truncated.
+
+**Export log opens folder**: Uses `Util.getOperatingSystem().open(exportDir.toUri())` instead of `java.awt.Desktop.open()` — Minecraft's Util has better cross-platform compatibility (especially Linux), and doesn't depend on AWT (AWT fails in some headless environments).
+
+**Mock config panel simplification**: Mock Provider doesn't need API Key/endpoint/model/disableThinking/fetch models/reset endpoint configs — it calls no HTTP interface and always returns original text. All these controls are hidden when Mock is selected, keeping only the two "show original text" toggles (client-side global preference, unrelated to Provider) and the save button (clicking save means "set Mock as the active provider").
+
+Why keep the save button instead of hiding it too: In the one-stage Mock warning design (1.1.5), save is the action that triggers the confirmation dialog — if the save button were hidden, players would have no way to set Mock as the active provider after switching to it. Keeping the save button lets players "knowingly" set Mock as active, which is exactly what the Mock warning dialog exists for.
+
+Why the two "show original" toggles aren't hidden with Mock: These toggles migrated from server op config to client-side personal preference in 1.1.1, stored in `client-only-config.json`, completely unrelated to the currently selected Provider — whether to show original text is a personal preference regardless of whether activeProvider is Mock or OpenAI. Hiding them when Mock is selected would mislead players into thinking "Mock mode can't configure show-original".
+
+**Non-op config panel simplification**: When a non-op player opens the server config tab, all right-side controls are hidden (API Key/endpoint/model/disableThinking/reset endpoint/fetch models/clear key/save button), keeping only the two "show original" toggles. The Provider list disables manual scrolling + disables click selection + fully greyed out (including active provider's green ✓ mark), but init auto-scrolls to activeProvider so the player sees the currently active one. The right control area shows hint text "Current active provider: X (read-only)", positioned 8px below the banner — banner height is adaptive (may exceed 20px after wrapping), uses drawBanner's returned actual height to calculate offset, fixed value would cause overlap below multi-line banners.
+
+Why non-op players can't switch Provider: A non-op player viewing other Providers' configs is meaningless — they can see but can't edit, and might think "switching to B means B is usable" (when actually only op save takes effect). Locking to activeProvider lets non-op players see only "what's the currently active Provider" — the only info they need.
+
+Why non-op players can't scroll the list: Same reason as disabling selection — allowing scroll but not selection means players scroll down, see a Provider, then can't interact, which is worse UX ("see it but can't click" is more confusing than "can't scroll at all"). Fully locking the list + auto-positioning to activeProvider is the cleanest solution.
+
+Why non-op list is greyed out instead of just locking interaction: Simply locking scroll and selection but keeping normal colors, players might think "list is usable, just these Providers happen to be unselectable"; full grey-out with banner hint is clearest semantics — grey is the universal "unavailable" visual language, players see at a glance "this isn't for me to operate". Active provider's ✓ mark and green text also greyed out — non-op players should see "read-only display" not "normal list but unclickable"; keeping green makes active provider look "selectable", conflicting with read-only semantics. Grey-out mode also disables hover feedback (hover implies "interactive"), only drawing selection outline so player knows which Provider they're currently viewing.
+
+Why auto-position + manual scroll lock don't conflict: `scrollToProvider` is called once in `init()`, setting scrollOffset to make activeProvider visible. Then `setScrollLocked(true)` locks it, and player scroll wheel operations are intercepted by `if (scrollLocked) return false` at the start of `mouseScrolled`. They act at different times — init auto-position is a one-time programmatic setting, subsequent scroll wheel is player manual operation, independent of each other.
+
+Why hint text is drawn below the banner instead of in the banner: The banner already has the "You are not an admin" permission hint (yellow background bar). Adding "Current active provider: X" to the banner would make the text too long — although banner now supports wrapping and won't truncate, cramming two pieces of info into one banner makes it very tall and squeezes control space below. Separating is clearer: banner only carries "permission hint" semantics, hint text drawn below carries "which Provider is current" semantics. The first row of the control area (below the banner) was originally the API Key input, which is already hidden for non-op; the freed space is perfect for hint text — no overlap with the banner, no wasted space.
+
+**Provider list auto-scroll to selected**: Per user request "auto-scroll to the selected and applied Provider every time the interface opens". `ProviderListWidget.scrollToProvider(providerId)` is called in `ProviderConfigPanel.init()`, computing the target Provider's row y coordinate; if already visible, no movement; if above, scroll up to fully display; if below, scroll down to fully display.
+
+Why use selectedProvider instead of activeProvider: If a player temporarily switches to B for viewing, closes the interface, and reopens it (if selectedProvider is preserved), it should scroll to B, not activeProvider. On first open, selectedProvider == activeProvider, so they're the same. The 1.1.3 `preservedSelectedProvider` mechanism preserves selectedProvider across init rebuilds, so when reopening the interface, selectedProvider is the Provider the player last viewed — scrolling there is reasonable.
+
+**Provider switch server→client real-time sync**: User reported "after server switches Provider, client must reconnect to sync". Root cause: old `ConfigSnapshotPayload` only sent at two moments, both only back to the initiator: (1) player opens config UI sending `RequestConfigPayload`; (2) player submits changes sending `UpdateConfigPayload`. Other online players' `ClientConfigState.activeProvider` stayed at old value. `/mccf provider set` command path was worse — sent no `ConfigSnapshotPayload` at all, not even to the command executor.
+
+Fix — three proactive push moments:
+- op saves via config UI: `UpdateConfigPayload` receiver compares `oldActiveProvider` and `config.activeProvider` after `applyUpdateJson` succeeds; if changed, calls `ConfigSyncHandler.broadcastSnapshot(server, config)` to broadcast to all online players; if unchanged (only API Key etc. changed), only sends back to submitter.
+- op switches via command: `MCCFCommand.setProvider` calls `broadcastSnapshot` after `config.save()`.
+- player joins server: `ServerPlayConnectionEvents.JOIN` proactively calls `sendSnapshotTo(player, config)` to push a snapshot, letting `ClientConfigState` immediately reflect real state — old version kept `activeProvider` at default `"mock"` until manually opening config UI.
+
+Why `broadcastSnapshot` constructs snapshot per player by their op status: `buildSnapshotJson` internally desensitizes apiKey based on op status (non-op receives empty string). If sending the same copy, either non-op sees real Key (security hole) or op sees desensitized Key (UI shows Key cleared, mistakenly thinks config lost). Must construct separately per player.
+
+Why `UpdateConfigPayload` path only broadcasts when `activeProvider` changes instead of every save: non-op players only care about `activeProvider` (apiKey invisible to them, model/endpoint changes irrelevant); broadcasting to non-op when only API Key changed is meaningless traffic. op players with config UI open also only care if activeProvider changed — Key/model changes will be re-requested on UI refresh. Broadcasting only on `activeProvider` change is minimal necessary broadcast.
+
+**Client-only mode defaults to local settings tab**: User reported "after switching run mode to forced client-only, opening config should default to local settings tab". `MCCFConfigScreen` constructor checks `ClientOnlyModeManager.isClientOnlyModeActive()`, sets `activeTab = Tab.LOCAL` if true. `isClientOnlyModeActive` covers two cases: manually forced client-only mode + auto-detected server without MCCF — both mean player is actually using local translation, defaulting to local settings saves one manual tab switch.
+
+Why in constructor instead of init(): init() is triggered to rebuild by `setScreen` (window resize, child Screen close returns, etc.); each rebuild shouldn't override player's manually switched tab — constructor only called once on `new MCCFConfigScreen`, exactly the "first open" moment. After player manually switches to server tab and triggers init rebuild, `activeTab` stays `Tab.SERVER` (field value not re-overwritten by constructor, since constructor won't be called again).
+
+---
+
 ## 1.1.4　Fix onSnapshotUpdated resetting selectedProvider + self-talk subtitle no translation + history show-translation toggle + title styling
 
 **Root cause - onSnapshotUpdated resetting selectedProvider**: 1.1.3's init() rebuild preserving selectedProvider fix (via `preservedSelectedProvider`) only solved half the problem. The real root cause is `ServerConfigPanel` constructor calling `requestSnapshot()` to send a config request; after the new panel is created, the server replies with ConfigSnapshotPayload triggering `onSnapshotUpdated()`, where `selectedProvider = state.activeProvider` resets the preserved selection.

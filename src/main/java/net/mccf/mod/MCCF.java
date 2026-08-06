@@ -112,12 +112,27 @@ public class MCCF implements ModInitializer {
 		ServerPlayNetworking.registerGlobalReceiver(UpdateConfigPayload.ID, (payload, context) -> {
 			var player = context.player();
 			context.server().execute(() -> {
+				// 1.1.5：记录旧 activeProvider，用于判断本次提交是否切换了 Provider。
+				// 只有 activeProvider 变化时才需要广播给其他在线玩家——非 op 玩家只关心
+				// activeProvider（apiKey 对他们不可见、model/endpoint 变了也和他们无关），
+				// 只改 API Key 时广播给非 op 是无意义的流量。op 玩家如果开着配置界面，
+				// 也只关心 activeProvider 是否变了（Key/model 变了他们刷新界面时会重新请求快照）。
+				String oldActiveProvider = config.activeProvider;
 				var error = ConfigSyncHandler.applyUpdateJson(player, config, payload.json());
-				// 无论成功与否，都回发最新快照，让客户端界面反映真实的服务端状态
-				// （如果被拒绝，玩家会看到配置没有变化，而不是界面显示了不存在的修改）。
-				String snapshotJson = ConfigSyncHandler.buildSnapshotJson(player, config);
-				ServerPlayNetworking.send(player, new ConfigSnapshotPayload(snapshotJson));
-				error.ifPresent(msg -> player.sendMessage(net.minecraft.text.Text.literal("[MCCF] " + msg), false));
+				if (error.isEmpty()) {
+					// 成功：如果 activeProvider 变了，广播给所有在线玩家；否则只回发给提交者。
+					// 广播时每个玩家按各自 op 状态构造快照（非 op 的 apiKey 脱敏为空），
+					// 见 ConfigSyncHandler.broadcastSnapshot 的注释说明。
+					if (!config.activeProvider.equals(oldActiveProvider)) {
+						ConfigSyncHandler.broadcastSnapshot(context.server(), config);
+					} else {
+						ConfigSyncHandler.sendSnapshotTo(player, config);
+					}
+				} else {
+					// 失败：只回发给提交者，让界面回到真实服务端状态（拒绝的修改不会生效）。
+					ConfigSyncHandler.sendSnapshotTo(player, config);
+					error.ifPresent(msg -> player.sendMessage(net.minecraft.text.Text.literal("[MCCF] " + msg), false));
+				}
 			});
 		});
 
@@ -129,7 +144,18 @@ public class MCCF implements ModInitializer {
 							ServerPlayNetworking.send(player, new ModelsResultPayload(resultJson))));
 		});
 
-		// 8. 玩家离线时清理其语言记录、模式偏好与所属 Conversation（避免过期占用）
+		// 8. 玩家加入时主动推送一份配置快照，让 ClientConfigState 立即反映真实服务端状态。
+		//    1.1.5 新增：旧版玩家加入后 ClientConfigState.activeProvider 一直是默认值 "mock"，
+		//    直到玩家手动打开配置界面发 RequestConfigPayload 才会更新。这导致：
+		//    (1) 非 op 玩家在配置界面看到的"当前生效 Provider"可能不准；
+		//    (2) 依赖 activeProvider 做客户端展示的逻辑（如横幅提示）读到的是假默认值。
+		//    加入时推一份快照彻底解决——和 broadcastSnapshot 配合，配置变更不再需要重连同步。
+		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+			var player = handler.getPlayer();
+			server.execute(() -> ConfigSyncHandler.sendSnapshotTo(player, config));
+		});
+
+		// 9. 玩家离线时清理其语言记录、模式偏好与所属 Conversation（避免过期占用）
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			var playerId = handler.getPlayer().getUuid();
 			PlayerLanguageRegistry.remove(playerId);

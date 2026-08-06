@@ -369,6 +369,26 @@ src/client/java/net/mccf/mod/client/
 
 > 决策分析（根因、方案论证、取舍）已移至 [docs/design-notes.md](docs/design-notes.md)（[英文版](docs/design-notes_en.md)），本章节只保留纯版本更新。
 
+### 2026-08-05　1.1.5 新增：权限状态机 + Mock 警告 + 导出日志打开文件夹
+
+- **权限状态机**：服务端配置标签页根据连接状态动态判断可见性：
+  - **隐藏**（不显示标签）：未进入世界（带 500ms 防抖）/ 单人世界无人通过 LAN 加入 / 服务端未装 MCCF
+  - **只读**（灰色 + 黄色横幅"你不是此服务器的管理员"）：服务器非 op
+  - **可编辑**：op + 服务端装了 MCCF / 单人 LAN 有人加入
+  - "字幕/聊天栏显示原文"两个开关不受权限限制（客户端个人偏好）
+  - 实时刷新：状态变化时自动重建界面（如玩家被 op / 服务端装了 MCCF / 单人世界有人通过 LAN 加入）
+- **Mock 警告**：
+  - 选中 Mock 查看（从非 Mock 切换到 Mock）时弹 ConfirmScreen 提醒"Mock 不会真正翻译"
+  - 保存 Mock 时弹 ConfirmScreen 确认（已保存 Mock 不再弹）
+  - 右侧配置区顶部横幅：选中查看 Mock 时黄色警告条，保存后红色常驻条"Mock 仅用于调试..."
+- **导出日志打开文件夹**：点击"导出日志"后自动用系统文件管理器打开 `mccf-exports/` 文件夹，玩家不用手动找文件
+- **Mock 配置界面精简**：Mock 选中时隐藏 API Key/endpoint/model/disableThinking/恢复默认/获取模型/清除 Key，只保留"显示原文"两个开关 + 保存按钮。Mock 无需这些配置项，显示出来反而误导。ServerConfigPanel 和 LocalConfigPanel 两个面板都应用。
+- **非 op 配置界面精简**：非 op 玩家打开服务端配置时，右侧隐藏 API Key/endpoint/model/disableThinking/恢复默认/获取模型/清除 Key/保存按钮，保留"显示原文"两个开关。Provider 列表禁止手动滚动 + 禁止点击切换（但 init 时自动定位到 activeProvider 让玩家看到当前生效的 Provider）。右侧控件区显示提示文字"当前生效的提供商：X（只读查看）"，位置在横幅下方避免重叠。
+- **Provider 列表自动滚动到选中项**：打开界面时自动滚动到 selectedProvider（通常等于 activeProvider），不再每次打开都要手动滚动找当前生效的 Provider。
+- 涉及文件：`MCCFConfigScreen.java`（权限状态机 + 防抖 + 实时刷新）、`ServerConfigPanel.java`（权限横幅 + Mock 警告 + applyEditability 改造 + Mock/非 op 控件隐藏 + 非 op 提示文字 + 列表锁定）、`LocalConfigPanel.java`（Mock 控件隐藏）、`ProviderConfigPanel.java`（PanelVisibility 枚举 + isMockSelected helper + init 自动滚动）、`ProviderListWidget.java`（scrollToProvider + setScrollLocked + setSelectionLocked）、`LogExporter.java`（打开文件夹）、9 种语言文件（4 个新翻译键 × 9）
+
+版本号 `1.1.4` → `1.1.5`。决策分析见 [docs/design-notes.md](docs/design-notes.md)。
+
 ### 2026-08-05　1.1.4 修复：onSnapshotUpdated 重置 selectedProvider + 自己说话字幕不显译文 + 历史记录显示译文开关 + 大标题样式
 
 - **核心 bug 修复 - 切换 Provider 后获取模型列表点取消仍切回 activeProvider**：1.1.3 的 init() 重建保留 selectedProvider 修复只解决了一半——新 panel 构造函数调用 `requestSnapshot()` 发配置请求，服务端回包触发 `onSnapshotUpdated()`，里面 `selectedProvider = state.activeProvider` 把保留的选中状态又重置了。修复：删除 `onSnapshotUpdated` 里的 selectedProvider 重置行。首次打开通过 `initialSelectedProvider()` 初始化，init 重建通过 `preservedSelectedProvider` 保留，保存后 selectedProvider 已等于 activeProvider——三种场景都不需要 onSnapshotUpdated 重置。

@@ -104,8 +104,17 @@ public final class LogExporter {
 				resultMessage.append("Full log: ").append(fullLogOutput.getFileName());
 			}
 
-			MCCF.LOGGER.info("[MCCF] Log exported to {}", exportDir);
-			return "Exported to mccf-exports/ (" + resultMessage + ")";
+		MCCF.LOGGER.info("[MCCF] Log exported to {}", exportDir);
+		// 1.1.5 新增：导出成功后自动打开导出文件夹，方便玩家立即查看文件
+		// 而不用手动去文件管理器里找。用 Minecraft 的 Util.getOperatingSystem().open()
+		// 而不是 java.awt.Desktop——Util.open 跨平台兼容性更好（特别是 Linux 上），
+		// 且不依赖 AWT（AWT 在某些无头环境会失败）。
+		try {
+			net.minecraft.util.Util.getOperatingSystem().open(exportDir.toUri());
+		} catch (Exception e) {
+			MCCF.LOGGER.warn("[MCCF] Failed to open export folder in file manager.", e);
+		}
+		return "Exported to mccf-exports/ (" + resultMessage + ")";
 		} catch (IOException e) {
 			MCCF.LOGGER.error("[MCCF] Log export failed.", e);
 			return "Export failed: " + e.getMessage();

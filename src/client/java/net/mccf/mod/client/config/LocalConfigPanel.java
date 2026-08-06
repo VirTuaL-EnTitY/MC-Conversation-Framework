@@ -169,12 +169,23 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		boolean supportsModelList = !ClientConfigState.NO_MODEL_LIST_SUPPORT.contains(selectedProvider);
 		boolean supportsThinking = ClientConfigState.THINKING_CAPABLE_PROVIDERS.contains(selectedProvider);
 
+		// 1.1.5：Mock 选中时隐藏 API Key/endpoint/model/disableThinking/获取模型/同步按钮/清除 Key。
+		// 保留保存按钮（玩家点保存就是"把 Mock 设为本地生效 Provider"）和关闭按钮。
+		// 本地面板不涉及 op 权限，所有玩家都能编辑，所以不做非 op 隐藏。
+		apiKeyField.visible = tabVisible && !isMock;
 		apiKeyField.active = tabVisible && !isMock;
-		endpointField.active = tabVisible && !isMock;
-		modelField.active = tabVisible && !isMock && !isDeepL;
+		clearApiKeyButton.visible = tabVisible && !isMock;
 		clearApiKeyButton.active = tabVisible && !isMock;
+		modelField.visible = tabVisible && !isMock;
+		modelField.active = tabVisible && !isMock && !isDeepL;
+		endpointField.visible = tabVisible && !isMock;
+		endpointField.active = tabVisible && !isMock;
 		if (fetchModelsButton != null) {
-			fetchModelsButton.active = tabVisible && supportsModelList;
+			fetchModelsButton.visible = tabVisible && !isMock;
+			fetchModelsButton.active = tabVisible && !isMock && supportsModelList;
+		}
+		if (syncButton != null) {
+			syncButton.visible = tabVisible && !isMock;
 		}
 		// 0.16.2：visible 必须 AND tabVisible——见 ServerConfigPanel#refreshFieldsFromState
 		// 同款注释。两个 Panel 用同一套坐标，disableThinkingButton 位置完全重叠，
@@ -182,8 +193,8 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		// LocalConfigPanel.onTabVisibilityChanged 会调本方法，如果不 AND tabVisible，
 		// setVisible(false) 设的 visible 会被这里覆盖回 true（当 Provider 支持思考时）。
 		if (disableThinkingButton != null) {
-			disableThinkingButton.visible = supportsThinking && tabVisible;
-			disableThinkingButton.active = tabVisible && supportsThinking;
+			disableThinkingButton.visible = supportsThinking && tabVisible && !isMock;
+			disableThinkingButton.active = tabVisible && supportsThinking && !isMock;
 			disableThinkingButton.setValue(pc.disableThinking);
 		}
 	}
@@ -192,7 +203,8 @@ public class LocalConfigPanel extends ProviderConfigPanel {
 		boolean canSync = ClientPlayNetworking.canSend(RequestConfigPayload.ID)
 				&& ClientConfigState.get().hasReceivedSnapshot;
 		if (syncButton != null) {
-			syncButton.active = tabVisible && canSync;
+			// 1.1.5：Mock 选中时整个按钮隐藏（见 refreshFieldsFromState），这里不重复设 visible。
+			syncButton.active = tabVisible && canSync && !"mock".equals(selectedProvider);
 		}
 	}
 

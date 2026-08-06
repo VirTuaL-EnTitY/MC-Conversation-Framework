@@ -1,5 +1,9 @@
 package net.mccf.mod.client.config;
 
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.mccf.mod.client.mode.ClientOnlyModeManager;
+import net.mccf.mod.network.RequestConfigPayload;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -87,11 +91,104 @@ public class MCCFConfigScreen extends Screen {
 	private String lastSelectedServerProvider;
 	private String lastSelectedLocalProvider;
 
+	/**
+	 * 1.1.5 新增：服务端配置标签页的可见性状态。
+	 *
+	 * 根据当前连接状态动态判断：
+	 * - HIDDEN：隐藏整个"服务端配置"标签（未进入世界 / 单人世界无人加入 / 服务端未装 MCCF）
+	 * - READ_ONLY：显示标签但控件灰色不可编辑 + 顶部黄色横幅（服务器非 op）
+	 * - EDITABLE：显示标签且可编辑（op + 服务端装了 MCCF / 单人 LAN 有人加入）
+	 */
+	private enum ServerPanelVisibility { HIDDEN, READ_ONLY, EDITABLE }
+
+	/** 上次计算的可见性状态——用于检测变化触发重建。 */
+	private ServerPanelVisibility lastServerVisibility = null;
+
+	/**
+	 * "未进入世界"防抖：player 变 null 后 500ms 内仍视为"在世界中"，
+	 * 避免维度切换等过渡瞬间状态闪烁。用户明确要求"以防万一加防抖"。
+	 */
+	private long playerNullSinceMillis = 0;
+	private boolean consideredInWorld = false;
+
+	/**
+	 * 判断当前是否"在世界中"（player 非 null），带 500ms 防抖。
+	 * player 从非 null 变 null 时，500ms 内仍返回 true；500ms 后才返回 false。
+	 * player 从 null 变非 null 时立即返回 true。
+	 */
+	private boolean isInWorld() {
+		MinecraftClient client = MinecraftClient.getInstance();
+		boolean playerExists = client.player != null;
+		if (playerExists) {
+			playerNullSinceMillis = 0;
+			consideredInWorld = true;
+		} else if (consideredInWorld) {
+			if (playerNullSinceMillis == 0) {
+				playerNullSinceMillis = System.currentTimeMillis();
+			}
+			if (System.currentTimeMillis() - playerNullSinceMillis < 500) {
+				return true; // 防抖窗口内仍视为在世界
+			}
+			consideredInWorld = false;
+		}
+		return consideredInWorld;
+	}
+
+	/**
+	 * 计算服务端配置标签页当前应有的可见性状态。
+	 *
+	 * 判断顺序（先匹配先返回）：
+	 * 1. 未进入世界（防抖）→ HIDDEN
+	 * 2. 单人世界且无人通过 LAN 加入 → HIDDEN（单人游戏你跟谁翻译）
+	 * 3. 服务端未装 MCCF → HIDDEN
+	 * 4. 非 op → READ_ONLY
+	 * 5. 否则 → EDITABLE
+	 */
+	private ServerPanelVisibility computeServerVisibility() {
+		// 1. 未进入世界
+		if (!isInWorld()) {
+			return ServerPanelVisibility.HIDDEN;
+		}
+
+		MinecraftClient client = MinecraftClient.getInstance();
+
+		// 2. 单人世界：只有自己时隐藏（没人需要跨语言交流），有人通过 LAN 加入时可编辑
+		if (client.isIntegratedServerRunning() && client.getServer() != null) {
+			int playerCount = client.getServer().getPlayerManager().getPlayerList().size();
+			if (playerCount > 1) {
+				return ServerPanelVisibility.EDITABLE; // 单人 LAN，有人加入
+			}
+			return ServerPanelVisibility.HIDDEN; // 单人世界，只有自己
+		}
+
+		// 3. 多人服务器：检查服务端是否装了 MCCF
+		if (!ClientPlayNetworking.canSend(RequestConfigPayload.ID)) {
+			return ServerPanelVisibility.HIDDEN; // 服务端未装 MCCF
+		}
+
+		// 4. 根据 op 状态判断
+		if (!ClientConfigState.get().canEdit) {
+			return ServerPanelVisibility.READ_ONLY; // 非 op
+		}
+
+		return ServerPanelVisibility.EDITABLE;
+	}
+
 	private enum Tab { SERVER, LOCAL }
 
 	public MCCFConfigScreen(Screen parent) {
 		super(Text.translatable("mccf.config.title"));
 		this.parent = parent;
+		// 1.1.5：实际跑在纯客户端模式时默认选本地设置标签——玩家在纯客户端模式下
+		// 最需要配置的是本地翻译 Provider（服务端配置即使可见也只是只读查看或无关）。
+		// isClientOnlyModeActive 涵盖两种情况：(1) 手动强制纯客户端模式；(2) 自动检测
+		// 到服务器没装 MCCF——这两种情况下玩家实际都在用本地翻译，默认选本地设置
+		// 能省掉一次手动切标签的操作。放在构造函数而非 init() 里，因为 init 会被
+		// setScreen 触发重建（窗口尺寸变化、子 Screen 关闭返回等），每次重建不应该
+		// 覆盖玩家手动切换的标签——构造函数只在 new 的时候调一次，正好是"首次打开"。
+		if (ClientOnlyModeManager.isClientOnlyModeActive()) {
+			this.activeTab = Tab.LOCAL;
+		}
 	}
 
 	@Override
@@ -99,35 +196,52 @@ public class MCCFConfigScreen extends Screen {
 		int contentLeft = MARGIN;
 		int contentTop = MARGIN + TAB_BAR_HEIGHT + TAB_BAR_GAP;
 		int contentRight = this.width - MARGIN;
-		// 控件区底边不再直接贴到屏幕底部——预留 BOTTOM_HINT_AREA_HEIGHT 的空间给
-		// 提示文字，避免"最后一行按钮"和"底部提示文字"共用同一条 y 坐标基准线
-		// 而相互覆盖（原设计的疏漏：两者都以 this.height - MARGIN 为基准，一个
-		// 往下排列控件，一个往上排列文字，行数一多就会在中间撞上）。
 		int contentBottom = this.height - MARGIN - BOTTOM_HINT_AREA_HEIGHT;
 
-		// 标签栏：两个等宽按钮并排在顶部。选中的标签用不同措辞高亮当前状态——
-		// Minecraft 原版 ButtonWidget 没有"激活态"的内建视觉，这里靠按钮文字加
-		// 方括号标记当前标签，简单可靠，不必自定义渲染。
+		// 1.1.5 新增：计算服务端标签页可见性，决定是否显示服务端标签按钮和 panel。
+		// HIDDEN 状态下完全不创建服务端标签按钮和 panel，只显示本地设置标签。
+		// 玩家不需要看到"服务端配置"这个标签——单人世界没人翻译、服务端没装 MCCF
+		// 配了也没用、未进入世界更没意义。隐藏比"灰色不可用"更干净。
+		ServerPanelVisibility visibility = computeServerVisibility();
+		lastServerVisibility = visibility;
+		boolean serverTabVisible = visibility != ServerPanelVisibility.HIDDEN;
+
 		int tabWidth = 200;
 		int tabGap = 4;
-		int tabBarWidth = tabWidth * 2 + tabGap;
-		int tabBarLeft = contentLeft + (contentRight - contentLeft - tabBarWidth) / 2;
 
-		serverTabButton = ButtonWidget.builder(tabLabel(Tab.SERVER), button -> switchTab(Tab.SERVER))
-				.dimensions(tabBarLeft, MARGIN, tabWidth, TAB_BAR_HEIGHT)
-				.build();
-		addDrawableChild(serverTabButton);
+		if (serverTabVisible) {
+			// 两个标签并排
+			int tabBarWidth = tabWidth * 2 + tabGap;
+			int tabBarLeft = contentLeft + (contentRight - contentLeft - tabBarWidth) / 2;
 
-		localTabButton = ButtonWidget.builder(tabLabel(Tab.LOCAL), button -> switchTab(Tab.LOCAL))
-				.dimensions(tabBarLeft + tabWidth + tabGap, MARGIN, tabWidth, TAB_BAR_HEIGHT)
-				.build();
-		addDrawableChild(localTabButton);
+			serverTabButton = ButtonWidget.builder(tabLabel(Tab.SERVER), button -> switchTab(Tab.SERVER))
+					.dimensions(tabBarLeft, MARGIN, tabWidth, TAB_BAR_HEIGHT)
+					.build();
+			addDrawableChild(serverTabButton);
+
+			localTabButton = ButtonWidget.builder(tabLabel(Tab.LOCAL), button -> switchTab(Tab.LOCAL))
+					.dimensions(tabBarLeft + tabWidth + tabGap, MARGIN, tabWidth, TAB_BAR_HEIGHT)
+					.build();
+			addDrawableChild(localTabButton);
+
+			// 服务端标签可见时，如果当前 activeTab 是 SERVER 但服务端标签被隐藏了
+			//（上次打开时是可编辑的，这次变成 HIDDEN），切到 LOCAL 标签
+			if (activeTab == Tab.SERVER && visibility == ServerPanelVisibility.HIDDEN) {
+				activeTab = Tab.LOCAL;
+			}
+		} else {
+			// 只有本地设置标签，居中显示
+			int tabBarLeft = contentLeft + (contentRight - contentLeft - tabWidth) / 2;
+			localTabButton = ButtonWidget.builder(tabLabel(Tab.LOCAL), button -> switchTab(Tab.LOCAL))
+					.dimensions(tabBarLeft, MARGIN, tabWidth, TAB_BAR_HEIGHT)
+					.build();
+			addDrawableChild(localTabButton);
+			serverTabButton = null;
+			// 服务端标签隐藏时强制切到本地设置
+			activeTab = Tab.LOCAL;
+		}
 
 		// 1.1.3 修复：重建前先从旧 Panel 读出 selectedProvider 保留下来。
-		// init() 可能在窗口大小变化、ConfirmScreen/ModelSelectionScreen 关闭等场景被触发，
-		// 每次都会 new 新 Panel，如果不保留 selectedProvider，玩家临时切换查看的 Provider
-		// 会丢失（变回 activeProvider），导致强制关闭思考开关"看起来没生效"和获取模型列表
-		// 后"Provider 切回 DeepSeek 丢失更改"两个 bug。
 		if (serverPanel != null) {
 			lastSelectedServerProvider = serverPanel.getSelectedProvider();
 		}
@@ -135,11 +249,19 @@ public class MCCFConfigScreen extends Screen {
 			lastSelectedLocalProvider = localPanel.getSelectedProvider();
 		}
 
-		serverPanel = new ServerConfigPanel(this, contentLeft, contentTop, contentRight, contentBottom, this.height / 2);
-		if (lastSelectedServerProvider != null) {
-			serverPanel.setPreservedSelectedProvider(lastSelectedServerProvider);
+		if (serverTabVisible) {
+			serverPanel = new ServerConfigPanel(this, contentLeft, contentTop, contentRight, contentBottom, this.height / 2);
+			if (lastSelectedServerProvider != null) {
+				serverPanel.setPreservedSelectedProvider(lastSelectedServerProvider);
+			}
+			serverPanel.init(this::addDrawableChild);
+			// 1.1.5：把可见性状态传给 panel，让它决定控件灰色 + 横幅。
+			// ServerPanelVisibility.HIDDEN 时 panel 根本不创建，这里只需转换 READ_ONLY/EDITABLE。
+			serverPanel.setVisibility(visibility == ServerPanelVisibility.READ_ONLY
+					? ProviderConfigPanel.PanelVisibility.READ_ONLY : ProviderConfigPanel.PanelVisibility.EDITABLE);
+		} else {
+			serverPanel = null;
 		}
-		serverPanel.init(this::addDrawableChild);
 
 		localPanel = new LocalConfigPanel(this, contentLeft, contentTop, contentRight, contentBottom, this.height / 2);
 		if (lastSelectedLocalProvider != null) {
@@ -158,16 +280,18 @@ public class MCCFConfigScreen extends Screen {
 
 	private void switchTab(Tab tab) {
 		if (activeTab == tab) return;
+		// 1.1.5：服务端标签隐藏时不允许切到 SERVER
+		if (tab == Tab.SERVER && serverTabButton == null) return;
 		activeTab = tab;
 		applyTabVisibility();
-		serverTabButton.setMessage(tabLabel(Tab.SERVER));
-		localTabButton.setMessage(tabLabel(Tab.LOCAL));
+		if (serverTabButton != null) serverTabButton.setMessage(tabLabel(Tab.SERVER));
+		if (localTabButton != null) localTabButton.setMessage(tabLabel(Tab.LOCAL));
 	}
 
 	/** 只显示当前标签对应的 Panel 控件，另一个标签的控件整体隐藏（不可见也不可交互）。 */
 	private void applyTabVisibility() {
-		boolean showServer = activeTab == Tab.SERVER;
-		serverPanel.setVisible(showServer);
+		boolean showServer = activeTab == Tab.SERVER && serverPanel != null;
+		if (serverPanel != null) serverPanel.setVisible(showServer);
 		localPanel.setVisible(!showServer);
 	}
 
@@ -196,12 +320,22 @@ public class MCCFConfigScreen extends Screen {
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+		// 1.1.5 实时刷新：每帧检查服务端标签可见性是否变化，变化时重建界面。
+		// 状态变化的场景：玩家从非 op 被 op、服务端装了 MCCF、单人世界有人通过 LAN 加入等。
+		// 重建开销可接受——只在状态真正变化时才 clearChildren + init，不是每帧都做。
+		ServerPanelVisibility currentVisibility = computeServerVisibility();
+		if (lastServerVisibility != currentVisibility) {
+			lastServerVisibility = currentVisibility;
+			this.clearChildren();
+			this.init();
+		}
+
 		super.render(context, mouseX, mouseY, delta);
 		context.drawCenteredTextWithShadow(textRenderer, title, this.width / 2, 4, Colors.WHITE);
 
-		if (activeTab == Tab.SERVER) {
+		if (activeTab == Tab.SERVER && serverPanel != null) {
 			serverPanel.render(context, mouseX, mouseY, delta);
-		} else {
+		} else if (localPanel != null) {
 			localPanel.render(context, mouseX, mouseY, delta);
 		}
 	}

@@ -75,6 +75,20 @@ public abstract class ProviderConfigPanel {
 		// selectedProvider 改到 init() 里赋值（那时子类构造已全部完成、字段就绪），见 init()。
 	}
 
+	/**
+	 * 1.1.5 新增：面板可见性状态（仅 ServerConfigPanel 使用，LocalConfigPanel 始终 EDITABLE）。
+	 * HIDDEN 由 MCCFConfigScreen 通过不创建 panel 处理，panel 层面只会收到 READ_ONLY 或 EDITABLE。
+	 * - READ_ONLY：控件灰色不可编辑，顶部黄色横幅提示"你不是管理员"
+	 * - EDITABLE：控件正常可编辑
+	 * "显示原文"两个开关不受此状态影响（客户端个人偏好，不需要 op 权限）。
+	 */
+	protected enum PanelVisibility { READ_ONLY, EDITABLE }
+	protected PanelVisibility visibility = PanelVisibility.EDITABLE;
+
+	public void setVisibility(PanelVisibility visibility) {
+		this.visibility = visibility != null ? visibility : PanelVisibility.EDITABLE;
+	}
+
 	/** 初始化时列表应该选中哪个 Provider。 */
 	protected abstract String initialSelectedProvider();
 
@@ -132,12 +146,28 @@ public abstract class ProviderConfigPanel {
 				this::selectProvider);
 		addChild.accept(listWidget);
 
+		// 1.1.5：打开界面时自动滚动到当前选中的 Provider，避免玩家每次打开都要手动滚。
+		// 这里用 selectedProvider 而不是 activeProvider——玩家临时切到 B 查看，关掉界面
+		// 重新打开（如果 selectedProvider 被保留），应该滚到 B 而不是 activeProvider。
+		// 如果是首次打开（selectedProvider == activeProvider），两者一致。
+		listWidget.scrollToProvider(selectedProvider);
+
 		int panelLeft = left + LIST_WIDTH + GUTTER;
 		buildRightPanel(panelLeft, top, right, bottom);
 
 		for (ClickableWidget widget : ownedWidgets) {
 			addChild.accept(widget);
 		}
+	}
+
+	/**
+	 * 1.1.5 新增：当前选中的 Provider 是否为 Mock。
+	 * Mock 不需要 API Key/endpoint/model/disableThinking/获取模型/恢复默认等配置——
+	 * 这些控件在 Mock 选中时应该隐藏。显示原文两个开关仍保留（它们是客户端全局偏好，
+	 * 与 Provider 无关）。保存按钮也保留（玩家点保存就是"把 Mock 设为生效 Provider"）。
+	 */
+	protected boolean isMockSelected() {
+		return "mock".equals(selectedProvider);
 	}
 
 	/** 子类在 buildRightPanel 里创建控件后调用这个方法登记，而不是直接 add——统一走 setVisible 管理。 */

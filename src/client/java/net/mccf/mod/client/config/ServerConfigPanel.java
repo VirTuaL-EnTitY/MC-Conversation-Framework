@@ -42,6 +42,8 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	private ButtonWidget saveButton;
 	private ButtonWidget fetchModelsButton;
 	private ButtonWidget clearApiKeyButton;
+	/** 1.1.5 提升为字段：Mock/非 op 时需要隐藏这个按钮。 */
+	private ButtonWidget resetEndpointButton;
 	private ButtonWidget retryButton;
 	/** "字幕显示原文"开关——AUDIBLE 模式物品栏字幕是否同时显示原文和译文。客户端个人偏好，1.1.1 起从服务端配置迁移。 */
 	private net.minecraft.client.gui.widget.CyclingButtonWidget<Boolean> showOriginalTextButton;
@@ -166,7 +168,7 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		y += spacing;
 
 		int halfWidth = (panelWidth - 8) / 2;
-		own(ButtonWidget.builder(Text.translatable("mccf.config.reset_endpoint"), button -> onResetEndpoint())
+		resetEndpointButton = own(ButtonWidget.builder(Text.translatable("mccf.config.reset_endpoint"), button -> onResetEndpoint())
 				.dimensions(panelLeft, y, halfWidth, fieldHeight)
 				.build());
 		fetchModelsButton = own(ButtonWidget.builder(
@@ -210,6 +212,11 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		userClearedApiKey = false;
 		refreshFieldsFromState();
 		applyEditability();
+
+		// 1.1.5：Mock 选中时不弹确认弹窗——应用户要求，Mock 警告只在"保存"时弹
+		// （见 onSave 里的 Mock 确认）。选中只切换查看，玩家可能只是想看一眼 Mock
+		// 的配置长什么样（虽然 Mock 没什么可配置的），不构成"要启用 Mock"的意图。
+		// 选中就弹窗会打断"随便点点看看"的浏览行为，体验上过于侵入。
 	}
 
 	/** 把 state 里当前查看 Provider 的数据填入输入框。 */
@@ -241,23 +248,54 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		boolean isMock = selectedProvider.equals("mock");
 		boolean isDeepL = selectedProvider.equals("deepl");
 		boolean supportsModelList = !ClientConfigState.NO_MODEL_LIST_SUPPORT.contains(selectedProvider);
+		// 1.1.5：可编辑性同时依赖 visibility（权限状态机）和 state.canEdit（服务端快照确认的 op 状态）。
+		// visibility == READ_ONLY 时即使 state.canEdit 还没收到快照，也强制灰色。
+		boolean canEdit = visibility == PanelVisibility.EDITABLE && state.canEdit;
 
-		apiKeyField.active = tabVisible && state.canEdit && !isMock;
-		endpointField.active = tabVisible && state.canEdit && !isMock;
-		modelField.active = tabVisible && state.canEdit && !isMock && !isDeepL;
-		fetchModelsButton.active = tabVisible && state.canEdit && supportsModelList;
-		clearApiKeyButton.active = tabVisible && state.canEdit && !isMock;
-		saveButton.active = tabVisible && state.canEdit;
-		// "显示原文"两个开关是客户端个人偏好，不受 op 权限限制——只依赖标签页
-		// 可见性（非活动标签页的控件不可交互，见 0.16.2 重叠 bug 的修复注释）。
-		if (showOriginalTextButton != null) showOriginalTextButton.active = tabVisible;
-		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.active = tabVisible;
-		if (disableThinkingButton != null) {
-			disableThinkingButton.active = tabVisible && state.canEdit
-					&& ClientConfigState.THINKING_CAPABLE_PROVIDERS.contains(selectedProvider);
+		// 1.1.5：非 op 玩家打开服务端配置时锁定 Provider 列表——禁止手动滚动 + 禁止点击切换 + 全部灰显。
+		// 列表在 init 时已自动定位到 activeProvider，非 op 玩家只能看 activeProvider 的状态，
+		// 切到别的 Provider 查看没有意义（看了也改不了）。op 玩家解锁，可自由滚动查看任意 Provider。
+		// 灰显配合横幅提示，让玩家一眼看出"这不是给我操作的"，而非"列表能用、只是碰巧不能选"。
+		if (listWidget != null) {
+			listWidget.setScrollLocked(!canEdit);
+			listWidget.setSelectionLocked(!canEdit);
+			listWidget.setGreyedOut(!canEdit);
 		}
 
-		if (!state.canEdit) {
+		// 1.1.5：Mock 选中时隐藏 API Key/endpoint/model/disableThinking/恢复默认/获取模型/清除 Key。
+		// 非 op 选中时隐藏同样的控件（外加隐藏保存按钮）。两种情况都保留"显示原文"两个开关
+		// （客户端个人偏好，与 Provider 和 op 权限都无关）。Mock 保留保存按钮（玩家点保存
+		// 就是"把 Mock 设为生效 Provider"）；非 op 隐藏保存按钮（没东西可保存）。
+		boolean hideProviderControls = isMock || !canEdit;
+		boolean hideSaveButton = !canEdit; // Mock 保留保存按钮
+
+		apiKeyField.visible = tabVisible && !hideProviderControls;
+		apiKeyField.active = tabVisible && canEdit && !isMock;
+		clearApiKeyButton.visible = tabVisible && !hideProviderControls;
+		clearApiKeyButton.active = tabVisible && canEdit && !isMock;
+		modelField.visible = tabVisible && !hideProviderControls;
+		modelField.active = tabVisible && canEdit && !isMock && !isDeepL;
+		endpointField.visible = tabVisible && !hideProviderControls;
+		endpointField.active = tabVisible && canEdit && !isMock;
+		if (disableThinkingButton != null) {
+			boolean supportsThinking = ClientConfigState.THINKING_CAPABLE_PROVIDERS.contains(selectedProvider);
+			disableThinkingButton.visible = tabVisible && !hideProviderControls && supportsThinking;
+			disableThinkingButton.active = tabVisible && canEdit && supportsThinking;
+		}
+		if (resetEndpointButton != null) {
+			resetEndpointButton.visible = tabVisible && !hideProviderControls;
+		}
+		if (fetchModelsButton != null) {
+			fetchModelsButton.visible = tabVisible && !hideProviderControls;
+			fetchModelsButton.active = tabVisible && canEdit && supportsModelList;
+		}
+		saveButton.visible = tabVisible && !hideSaveButton;
+		saveButton.active = tabVisible && canEdit;
+		// "显示原文"两个开关是客户端个人偏好，不受 op 权限限制——只依赖标签页可见性。
+		if (showOriginalTextButton != null) showOriginalTextButton.active = tabVisible;
+		if (showOriginalTextInChatButton != null) showOriginalTextInChatButton.active = tabVisible;
+
+		if (!canEdit) {
 			statusMessage = Text.translatable("mccf.config.no_permission");
 			statusColor = Colors.YELLOW;
 		}
@@ -451,13 +489,33 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 	 * 不再需要单独的"设为默认"按钮，保存这一步就代表"我选的就是这个"。
 	 */
 	private void onSave() {
-		if (!state.canEdit) return;
+		if (visibility != PanelVisibility.EDITABLE || !state.canEdit) return;
 		if (!ClientPlayNetworking.canSend(UpdateConfigPayload.ID)) {
 			statusMessage = Text.translatable("mccf.config.not_connected");
 			statusColor = Colors.YELLOW;
 			return;
 		}
 
+		// 1.1.5 Mock 警告（B1c 第二步）：保存 Mock 时弹确认屏幕。
+		// 已保存 Mock（activeProvider == mock）不弹——玩家已经确认过了。
+		if (selectedProvider.equals("mock") && !"mock".equals(state.activeProvider)) {
+			MinecraftClient.getInstance().setScreen(new net.minecraft.client.gui.screen.ConfirmScreen(
+					confirmed -> {
+						if (confirmed) {
+							performSave();
+						}
+						MinecraftClient.getInstance().setScreen(screen);
+					},
+					Text.translatable("mccf.config.mock_warning_title"),
+					Text.translatable("mccf.config.mock_warning_body")));
+			return;
+		}
+
+		performSave();
+	}
+
+	/** 实际执行保存——从 onSave 抽取，供 Mock 确认回调和正常路径共用。 */
+	private void performSave() {
 		ClientProviderConfig pc = state.getOrCreate(selectedProvider);
 		String enteredKey = apiKeyField.getText();
 		if (userClearedApiKey) {
@@ -493,12 +551,6 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 
 	@Override
 	protected void renderExtra(DrawContext context, int mouseX, int mouseY, float delta) {
-		// 注：不需要在这里判断 tabVisible——MCCFConfigScreen.render() 只在
-		// activeTab 匹配当前 Panel 时才会调用它的 render()/renderExtra()，
-		// 非活动标签页的 renderExtra 根本不会被调用到，这里的 tabVisible
-		// 恒为 true。retryButton 等控件切走标签页时的可见性重置由
-		// onTabVisibilityChanged 负责（该回调在 setVisible 里被无条件调用，
-		// 不依赖 render 是否执行）。
 		var textRenderer = MinecraftClient.getInstance().textRenderer;
 		int centerX = screen.width / 2;
 
@@ -506,14 +558,54 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 		int titleY = top - 14;
 		context.drawCenteredTextWithShadow(textRenderer, providerTitle, centerX, titleY, Colors.WHITE);
 
-		// 三态判断，替代原来"hasReceivedSnapshot ? 状态消息 : 加载中"的二态逻辑：
-		// 1) 从未发出过请求（snapshotRequestedAtMillis == 0，典型场景是玩家还没
-		//    进入任何世界/服务器）——不显示任何加载/超时提示，留空，避免在主菜单
-		//    也常驻一句跟当前场景无关的"正在加载配置"。
-		// 2) 已发出请求但还没收到回包，且未超过 SNAPSHOT_TIMEOUT_MS——正常的
-		//    "加载中"，服务端稍后应该会回应。
-		// 3) 已发出请求，超过 SNAPSHOT_TIMEOUT_MS 仍未收到回包——判定为服务器
-		//    没有安装 MCCF 或无法连接，不再空等，改为提示 + 显示"重试"按钮。
+		// 1.1.5 新增：右侧配置区顶部横幅渲染。
+		// 横幅优先级（从高到低）：Mock 红条（已保存）> Mock 黄条（仅查看）> 权限黄条（非 op）。
+		// 横幅位置：右侧配置区顶部（API Key 输入框上方），高度约 24px（两行文字）。
+		int panelLeft = left + LIST_WIDTH + GUTTER;
+		int panelWidth = right - panelLeft;
+		int bannerY = top - 4; // 在控件区顶部稍微往上一点，给横幅留位置
+
+		// Mock 横幅：选中查看 Mock 时黄条，已保存 Mock 时红条
+		boolean isMockSelected = "mock".equals(selectedProvider);
+		boolean isMockActive = "mock".equals(state.activeProvider);
+		int bannerHeight = 0;
+		if (isMockActive) {
+			// 红色常驻条（保存后）
+			bannerHeight = drawBanner(context, textRenderer, panelLeft, bannerY, panelWidth,
+					Text.translatable("mccf.config.mock_warning_persistent"), 0x55FF0000, 0xFF5555);
+		} else if (isMockSelected) {
+			// 黄色警告条（仅查看未保存）
+			bannerHeight = drawBanner(context, textRenderer, panelLeft, bannerY, panelWidth,
+					Text.translatable("mccf.config.mock_warning"), 0x55FFFF00, 0xFFFF55);
+		} else if (visibility == PanelVisibility.READ_ONLY) {
+			// 权限黄条（非 op）
+			bannerHeight = drawBanner(context, textRenderer, panelLeft, bannerY, panelWidth,
+					Text.translatable("mccf.config.no_permission"), 0x55FFFF00, 0xFFFF55);
+			// 1.1.5：非 op 时右侧控件全部隐藏（见 applyEditability），留下一大块空白。
+			// 在控件区第一行位置（横幅下方、原本是 API Key 输入框的位置）画一行说明文字，
+			// 告诉玩家当前生效的 Provider 名称——非 op 只需要知道"现在用的是哪个 Provider"。
+			// 位置在横幅下方 8px——横幅高度现在是自适应的（换行后可能不止 20px），
+			// 不能再用固定 28px 偏移，否则多行横幅下方会重叠。用 drawBanner 返回的实际高度计算。
+			Text readOnlyHint = Text.translatable("mccf.config.readonly_hint",
+					Text.translatable(ClientConfigState.providerNameKey(state.activeProvider)));
+			int hintY = bannerY + bannerHeight + 8;
+			String hintStr = readOnlyHint.getString();
+			// 文字可能超宽，按 panelWidth 换行绘制——复用 renderLeftBottomHints 的换行逻辑
+			// 不合适（那是左对齐到列表宽度），这里直接用 textRenderer.trimToWidth 手动换行。
+			int lineHeight = textRenderer.fontHeight + 2;
+			int currentY = hintY;
+			String remaining = hintStr;
+			while (!remaining.isEmpty()) {
+				String trimmed = textRenderer.trimToWidth(remaining, panelWidth);
+				if (trimmed.isEmpty()) trimmed = remaining.substring(0, 1);
+				context.drawTextWithShadow(textRenderer, trimmed, panelLeft, currentY, Colors.LIGHT_GRAY);
+				currentY += lineHeight;
+				if (trimmed.length() >= remaining.length()) break;
+				remaining = remaining.substring(trimmed.length());
+			}
+		}
+
+		// 三态判断（快照请求状态），同 1.1.2 逻辑
 		boolean neverRequested = snapshotRequestedAtMillis == 0;
 		boolean timedOut = !neverRequested
 				&& !state.hasReceivedSnapshot
@@ -530,9 +622,6 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 			statusLine = new HintLine(Text.translatable("mccf.config.loading"), Colors.LIGHT_GRAY);
 		}
 
-		// 现在只剩状态消息这一类常驻内容（Provider 说明已改为 tooltip），
-		// 最多 1-2 行（取决于语言/文案长度），左下角预留空间可以大幅缩小，
-		// 见 MCCFConfigScreen.BOTTOM_HINT_AREA_HEIGHT 的调整。
 		int afterHintsY = renderLeftBottomHints(context, left, bottom + 6, statusLine);
 
 		if (retryButton != null) {
@@ -542,5 +631,58 @@ public class ServerConfigPanel extends ProviderConfigPanel {
 				retryButton.setPosition(left, afterHintsY + 4);
 			}
 		}
+	}
+
+	/**
+	 * 1.1.5 新增：在右侧配置区顶部画一个横幅（背景色 + 文字），用于权限提示和 Mock 警告。
+	 *
+	 * 1.1.5 修复"横幅字显示不全"：旧版用 trimToWidth 截断文字（超宽直接砍掉），
+	 * 导致德语/法语/俄语等长文案在窄配置区里被截断看不全。改为按 width-8 宽度换行，
+	 * 横幅高度随行数自适应（每行 fontHeight+2，上下各 2px padding）。
+	 * 返回横幅实际高度，调用方据此调整后续元素位置（如非 op 提示文字），
+	 * 避免固定 28px 偏移在多行横幅下方重叠。
+	 *
+	 * @param x         横幅左边界
+	 * @param y         横幅顶部 y 坐标
+	 * @param width     横幅宽度
+	 * @param text      横幅文字
+	 * @param bgColor   背景色（含透明度，如 0x55FFFF00）
+	 * @param textColor 文字颜色
+	 * @return 横幅实际高度（像素），调用方用于定位后续元素
+	 */
+	private int drawBanner(DrawContext context, net.minecraft.client.font.TextRenderer textRenderer,
+			int x, int y, int width, Text text, int bgColor, int textColor) {
+		// 先按 width-8 宽度把文字拆成多行——trimToWidth 返回"不超宽的最长前缀"，
+		// 循环切掉已处理部分直到剩余为空，得到所有行。和 renderLeftBottomHints 的
+		// 换行逻辑同款手法（不是重复踩坑，是同一套换行工具用在横幅场景）。
+		String remaining = text.getString();
+		java.util.List<String> lines = new java.util.ArrayList<>();
+		while (!remaining.isEmpty()) {
+			String trimmed = textRenderer.trimToWidth(remaining, width - 8);
+			if (trimmed.isEmpty()) {
+				// 极端情况（单字符都超宽，防御性避免死循环）：至少取一个字符。
+				trimmed = remaining.substring(0, 1);
+			}
+			lines.add(trimmed);
+			if (trimmed.length() >= remaining.length()) break;
+			remaining = remaining.substring(trimmed.length());
+		}
+
+		int lineHeight = textRenderer.fontHeight + 2;
+		int padding = 4; // 上下各 2px
+		int bannerHeight = lines.size() * lineHeight + padding;
+
+		// 横幅背景
+		context.fill(x, y, x + width, y + bannerHeight, bgColor);
+
+		// 每行文字水平居中绘制，从顶部 padding/2 开始往下排
+		int currentY = y + padding / 2;
+		for (String line : lines) {
+			int textX = x + (width - textRenderer.getWidth(line)) / 2;
+			context.drawTextWithShadow(textRenderer, line, textX, currentY, textColor);
+			currentY += lineHeight;
+		}
+
+		return bannerHeight;
 	}
 }

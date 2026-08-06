@@ -104,6 +104,11 @@ public class MCCFCommand {
 			// ConfigSyncHandler 会调用 config.save()，命令路径也应如此）。
 			MCCF.getConfig().activeProvider = id;
 			MCCF.getConfig().save();
+			// 1.1.5：命令切换后广播快照给所有在线玩家，让客户端立即同步。
+			// 旧版命令路径完全不发任何 ConfigSnapshotPayload，导致包括命令执行者在内
+			// 的所有玩家都必须重连或重开配置界面才能看到新 Provider。广播时按各自
+			// op 状态脱敏 apiKey（非 op 收到的 Key 为空），见 broadcastSnapshot 注释。
+			ConfigSyncHandler.broadcastSnapshot(ctx.getSource().getServer(), MCCF.getConfig());
 			ctx.getSource().sendFeedback(() -> Text.translatable("command.mccf.provider.set", id), true);
 			return 1;
 		} else {

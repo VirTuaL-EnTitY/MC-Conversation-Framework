@@ -7,6 +7,9 @@ import net.mccf.mod.MCCF;
 import net.mccf.mod.config.MCCFConfig;
 import net.mccf.mod.config.ProviderConfig;
 import net.mccf.mod.config.ProviderDefaults;
+import net.mccf.mod.network.ConfigSnapshotPayload;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 
 import java.util.LinkedHashMap;
@@ -202,5 +205,49 @@ public class ConfigSyncHandler {
 					MCCF.LOGGER.warn("[MCCF] Model list fetch failed for provider {}: {}", providerId, message);
 					return GSON.toJson(error);
 				});
+	}
+
+	/**
+	 * 向所有在线玩家广播当前配置快照。
+	 *
+	 * 1.1.5 新增：修复"服务端切换 Provider 后客户端必须重连才能同步"的 bug。
+	 * 旧版只在两个时机发 ConfigSnapshotPayload：玩家自己请求快照（打开配置界面）、
+	 * 玩家自己提交修改（op 保存配置）——两种都只回发给发起者本人。其他在线玩家
+	 * 的 ClientConfigState.activeProvider 一直是旧值，必须重连或重开配置界面才能拿到新值。
+	 *
+	 * 为什么按玩家各自 op 状态逐个构造快照而不是发同一份：buildSnapshotJson 内部
+	 * 会根据 op 状态脱敏 apiKey（非 op 收到的 apiKey 为空字符串）。如果发同一份，
+	 * 要么非 op 玩家看到真实 Key（安全漏洞），要么 op 玩家看到脱敏 Key（界面显示
+	 * Key 被清空了，误以为配置丢了）。必须按玩家分别构造。
+	 *
+	 * 调用时机：
+	 * 1. op 通过配置界面保存后（MCCF.java UpdateConfigPayload 接收器）
+	 * 2. op 通过 /mccf provider set 命令切换后（MCCFCommand.setProvider）
+	 * 3. 玩家加入服务器时（ServerPlayConnectionEvents.JOIN，只发给该玩家）
+	 *
+	 * @param server 当前 MinecraftServer 实例，用于获取在线玩家列表
+	 * @param config 当前服务端配置
+	 */
+	public static void broadcastSnapshot(MinecraftServer server, MCCFConfig config) {
+		for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+			String snapshotJson = buildSnapshotJson(player, config);
+			ServerPlayNetworking.send(player, new ConfigSnapshotPayload(snapshotJson));
+		}
+	}
+
+	/**
+	 * 向单个玩家推送配置快照。
+	 *
+	 * 1.1.5 新增：用于玩家加入服务器时主动推送，让 ClientConfigState 立即反映
+	 * 真实服务端状态——不打开配置界面也能知道当前 activeProvider 是什么。
+	 * 旧版玩家加入后 ClientConfigState.activeProvider 一直是默认值 "mock"，
+	 * 直到玩家手动打开配置界面发 RequestConfigPayload 才会更新。
+	 *
+	 * 单独提供一个单播方法而不是复用 broadcastSnapshot + 遍历，是因为加入事件里
+	 * 只需要发给该玩家，遍历全服玩家既浪费也语义不清。
+	 */
+	public static void sendSnapshotTo(ServerPlayerEntity player, MCCFConfig config) {
+		String snapshotJson = buildSnapshotJson(player, config);
+		ServerPlayNetworking.send(player, new ConfigSnapshotPayload(snapshotJson));
 	}
 }

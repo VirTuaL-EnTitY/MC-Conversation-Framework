@@ -7,6 +7,71 @@
 
 ---
 
+## 1.1.5　权限状态机 + Mock 警告 + 导出日志打开文件夹
+
+**权限状态机设计**：服务端配置标签页的可见性分三档——HIDDEN（完全隐藏标签）、READ_ONLY（显示但灰色 + 黄色横幅）、EDITABLE（正常可编辑）。判断顺序：
+1. 未进入世界（`client.player == null`，500ms 防抖）→ HIDDEN
+2. 单人世界（`client.isIntegratedServerRunning()`）且 `getPlayerList().size() <= 1` → HIDDEN（单人游戏你跟谁翻译）
+3. 服务端未装 MCCF（`!canSend(RequestConfigPayload.ID)`）→ HIDDEN
+4. 非 op（`!state.canEdit`）→ READ_ONLY
+5. 否则 → EDITABLE
+
+**为什么单人世界用 `getPlayerList().size() > 1` 判断"是否开了 LAN 有人加入"**：Minecraft 没有直接的 API 判断"是否对局域网开放"。IntegratedServer 在开 LAN 前后都是同一个类型，`isOnlineMode()` 始终是 false。最可靠的判断是"是否有其他玩家通过 LAN 加入"——`getPlayerList().size() > 1` 精确反映了"有没有人和你跨语言交流的需求"。刚开 LAN 还没人加入时仍隐藏（没人加入就没翻译需求），有人加入后才显示。
+
+**为什么 500ms 防抖**：用户说"切换维度时你进不了配置界面"——所以 `client.player` 在正常游戏中不会变 null。但"以防万一"加防抖处理边界情况：player 变 null 后 500ms 内仍视为"在世界中"，避免短暂的 null 状态导致界面闪烁。player 从 null 变非 null 时立即生效（不需要防抖）。
+
+**为什么实时刷新用 render 里检查 + clearChildren + init**：权限状态变化的场景（玩家被 op、服务端装了 MCCF、单人世界有人加入 LAN）没有专门的事件可监听。最简单的方案是每帧在 render 里检查 `computeServerVisibility()` 是否和 `lastServerVisibility` 不同，不同时 `clearChildren() + init()` 重建。重建开销可接受——只在状态真正变化时才发生，不是每帧都做。
+
+**Mock 警告的一阶段设计**：只在保存时弹确认——选中 Mock 查看不弹任何弹窗。
+- 选中 Mock（onProviderSelected）：只切换查看、刷新控件可见性，不弹弹窗。玩家可能只是想看一眼 Mock 的配置长什么样，选中就弹窗会打断"随便点点看看"的浏览行为，体验过于侵入。
+- 保存 Mock（onSave）：selectedProvider == Mock 且 activeProvider != Mock 时弹 ConfirmScreen，确认"真的要保存 Mock"。点"是"才执行 performSave。
+- 已保存 Mock（activeProvider == Mock）：不弹——玩家已经确认过了，不再打扰。
+
+为什么从两阶段改成一阶段：初版设计是"选中时弹一次提醒 + 保存时再弹一次确认"（B1c 两阶段），但选中就弹窗在玩家只是浏览不同 Provider 时反复打断——玩家切到 Mock 看一眼、再切走、再切回来，每次都要关弹窗。保存才是"真正要启用 Mock"的意图表达，只在保存时弹一次足够拦截误操作，又不打扰浏览。
+
+**横幅优先级**：Mock 红条（已保存）> Mock 黄条（仅查看）> 权限黄条（非 op）。同一时间只显示一条横幅。横幅位置在右侧配置区顶部（API Key 输入框上方），高度自适应——文字按宽度换行，横幅高度随行数增长（每行 fontHeight+2 + 4px padding），避免长文案（德语/法语/俄语）被截断显示不全。
+
+**导出日志打开文件夹**：用 `Util.getOperatingSystem().open(exportDir.toUri())` 而不是 `java.awt.Desktop.open()`——Minecraft 的 Util 跨平台兼容性更好（特别是 Linux），且不依赖 AWT（AWT 在某些无头环境会失败）。
+
+**Mock 配置界面精简**：Mock Provider 不需要 API Key/endpoint/model/disableThinking/获取模型/恢复默认等配置——它不调任何 HTTP 接口，永远返回原文。这些控件在 Mock 选中时全部隐藏，只保留"显示原文"两个开关（客户端全局偏好，与 Provider 无关）和保存按钮（玩家点保存就是"把 Mock 设为生效 Provider"）。
+
+为什么保留保存按钮而不是也隐藏：Mock 警告的一阶段设计（1.1.5）里，保存是触发确认弹窗的动作——如果隐藏保存按钮，玩家切到 Mock 后没有任何方式把 Mock 设为生效 Provider（只能通过 op 命令？但客户端没有这个命令）。保留保存按钮让玩家能"明知故犯"地把 Mock 设为生效，这正是 Mock 警告弹窗存在的意义。
+
+为什么"显示原文"两个开关不随 Mock 隐藏：这两个开关在 1.1.1 从服务端 op 配置迁移为客户端个人偏好，存 `client-only-config.json`，与当前选中的 Provider 完全无关——无论 activeProvider 是 Mock 还是 OpenAI，玩家是否要看原文是个人偏好。如果 Mock 选中时隐藏这两个开关，玩家会以为"Mock 模式下不能设置显示原文"，这是误导。
+
+**非 op 配置界面精简**：非 op 玩家打开服务端配置标签页时，右侧控件全部隐藏（API Key/endpoint/model/disableThinking/恢复默认/获取模型/清除 Key/保存按钮），只保留"显示原文"两个开关。Provider 列表禁止手动滚动 + 禁止点击切换 + 全部灰显（包括 active provider 的绿色 ✓ 标记也变灰），但 init 时自动定位到 activeProvider 让玩家看到当前生效的 Provider。右侧控件区显示提示文字"当前生效的提供商：X（只读查看）"，位置在横幅下方 8px——横幅高度是自适应的（换行后可能不止 20px），用 drawBanner 返回的实际高度计算偏移，不能用固定值否则多行横幅下方会重叠。
+
+为什么非 op 玩家不能切 Provider 查看：非 op 玩家看其他 Provider 的配置没有意义——看了也改不了，反而可能让玩家以为"切到 B 就能用 B"（实际上只有 op 保存才生效）。锁定到 activeProvider 让非 op 玩家只看到"当前生效的 Provider 是什么"，这是非 op 玩家唯一需要知道的信息。
+
+为什么非 op 玩家禁止滚动列表：和禁止选中切换同因——如果允许滚动但不允许选中，玩家滚到下面的 Provider 看一眼又不能操作，体验更糟（"看到了却不让点"比"根本不让滚"更困惑）。完全锁定列表 + 自动定位到 activeProvider 是最干净的方案。
+
+为什么非 op 列表还要灰显而不只是锁定交互：单纯锁定滚动和选中但颜色正常，玩家可能以为"列表能用、只是这几个 Provider 碰巧不能选"；全部变灰配合横幅提示，语义最清晰——灰显是通用的"不可用"视觉语言，玩家一眼看出"这不是给我操作的"。active provider 的 ✓ 标记和绿色文字也一起变灰——非 op 玩家看到的应该是"只读展示"而非"正常列表但点不了"，保留绿色会让 active provider 看起来像是"可选的"，与只读语义冲突。同时灰显模式下禁用 hover 反馈（hover 暗示"可交互"），只画选中态描边让玩家知道当前看的是哪个 Provider。
+
+为什么自动定位 + 禁止手动滚动不冲突：`scrollToProvider` 在 `init()` 里调用一次，把 scrollOffset 设到让 activeProvider 可见的位置。之后 `setScrollLocked(true)` 锁定，玩家的滚轮操作被 `mouseScrolled` 开头的 `if (scrollLocked) return false` 拦截。两者作用于不同时机——init 时的自动定位是"一次性程序设置"，之后的滚轮是"玩家手动操作"，互不影响。
+
+为什么提示文字画在横幅下方而不是横幅本身：横幅已经有"你不是此服务器的管理员"这条权限提示（黄色背景条），如果再在横幅里塞"当前生效的提供商：X"会让横幅文字过长——虽然横幅现在支持换行不会截断，但两段信息挤在一个横幅里会让横幅变得很高、挤占下方控件空间。分开画更清晰：横幅只承担"权限提示"这一个语义，提示文字单独画在下方承担"当前是哪个 Provider"的语义。控件区第一行位置（横幅下方）原本是 API Key 输入框，非 op 时该输入框已隐藏，留出的空白正好用来放提示文字——不与横幅重叠，也不浪费空间。
+
+**Provider 列表自动滚动到选中项**：应用户要求"每次打开界面自动滚动到选中并应用的 Provider"。`ProviderListWidget.scrollToProvider(providerId)` 在 `ProviderConfigPanel.init()` 里调用，计算目标 Provider 的行 y 坐标，如果已在可视区域内不动；在上方则往上滚到完整显示，在下方则往下滚到完整显示。
+
+为什么用 selectedProvider 而不是 activeProvider：玩家临时切到 B 查看，关掉界面重新打开（如果 selectedProvider 被保留），应该滚到 B 而不是 activeProvider。首次打开时 selectedProvider == activeProvider，两者一致。1.1.3 的 `preservedSelectedProvider` 机制让跨 init 重建保留 selectedProvider，所以重新打开界面时 selectedProvider 是玩家上次查看的 Provider，滚到那里是合理的。
+
+**Provider 切换服务端→客户端实时同步**：用户反馈"服务端切换 Provider 后客户端必须重连服务器才能同步"。根因是旧版 `ConfigSnapshotPayload` 只在两个时机发送，且都只回发给发起者本人：(1) 玩家自己打开配置界面发 `RequestConfigPayload` 请求快照；(2) 玩家自己提交修改发 `UpdateConfigPayload`。其他在线玩家的 `ClientConfigState.activeProvider` 一直是旧值。`/mccf provider set` 命令路径更糟——完全不发任何 `ConfigSnapshotPayload`，连命令执行者本人都收不到包。
+
+修复方案——三个时机主动推送：
+- op 通过配置界面保存：`UpdateConfigPayload` 接收器在 `applyUpdateJson` 成功后，比较 `oldActiveProvider` 和 `config.activeProvider`，变化时调 `ConfigSyncHandler.broadcastSnapshot(server, config)` 广播给所有在线玩家；没变（只改了 API Key 等）时只回发给提交者。
+- op 通过命令切换：`MCCFCommand.setProvider` 在 `config.save()` 后调 `broadcastSnapshot`。
+- 玩家加入服务器：`ServerPlayConnectionEvents.JOIN` 主动调 `sendSnapshotTo(player, config)` 推一份快照，让 `ClientConfigState` 立即反映真实状态——旧版玩家加入后 `activeProvider` 一直是默认值 `"mock"`，直到手动打开配置界面才更新。
+
+为什么 `broadcastSnapshot` 按玩家各自 op 状态逐个构造快照：`buildSnapshotJson` 内部根据 op 状态脱敏 apiKey（非 op 收到的 apiKey 为空字符串）。如果发同一份，要么非 op 看到真实 Key（安全漏洞），要么 op 看到脱敏 Key（界面显示 Key 被清空，误以为配置丢了）。必须按玩家分别构造。
+
+为什么 `UpdateConfigPayload` 路径只在 `activeProvider` 变化时广播而不是每次保存都广播：非 op 玩家只关心 `activeProvider`（apiKey 对他们不可见、model/endpoint 变了和他们无关），只改 API Key 时广播给非 op 是无意义流量。op 玩家如果开着配置界面，也只关心 activeProvider 是否变了——Key/model 变了他们刷新界面时会重新请求快照。只在 `activeProvider` 变化时广播是最小必要广播。
+
+**纯客户端模式默认选本地设置标签**：用户反馈"运行模式改成强制纯客户端模式后，打开配置页面应默认选本地设置"。`MCCFConfigScreen` 构造函数里判断 `ClientOnlyModeManager.isClientOnlyModeActive()`，为 true 时设 `activeTab = Tab.LOCAL`。`isClientOnlyModeActive` 涵盖两种情况：手动强制纯客户端模式 + 自动检测到服务器没装 MCCF——这两种情况下玩家实际都在用本地翻译，默认选本地设置能省掉一次手动切标签。
+
+为什么放在构造函数而非 init() 里：init() 会被 `setScreen` 触发重建（窗口尺寸变化、子 Screen 关闭返回等），每次重建不应该覆盖玩家手动切换的标签——构造函数只在 `new MCCFConfigScreen` 时调一次，正好是"首次打开"的时机。玩家手动切到服务端标签后触发 init 重建，`activeTab` 保持 `Tab.SERVER`（字段值不会被构造函数重新覆盖，因为构造函数不会再调）。
+
+---
+
 ## 1.1.4　修复 onSnapshotUpdated 重置 selectedProvider + 自己说话字幕不显译文 + 历史记录显示译文开关 + 大标题样式
 
 **根因分析 - onSnapshotUpdated 重置 selectedProvider**：1.1.3 的 init() 重建保留 selectedProvider 修复（`preservedSelectedProvider`）只解决了一半。真正的根因是 `ServerConfigPanel` 构造函数调用 `requestSnapshot()` 发配置请求，新 panel 创建后服务端回 ConfigSnapshotPayload 触发 `onSnapshotUpdated()`，里面 `selectedProvider = state.activeProvider` 把保留的选中状态又重置了。

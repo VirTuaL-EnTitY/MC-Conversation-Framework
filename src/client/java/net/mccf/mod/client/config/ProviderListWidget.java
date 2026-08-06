@@ -64,6 +64,37 @@ public class ProviderListWidget extends ClickableWidget {
 	/** 当前纵向滚动偏移（像素），范围 [0, maxScrollOffset]。 */
 	private int scrollOffset = 0;
 
+	/**
+	 * 滚动锁定标志——true 时禁止玩家手动滚动。
+	 *
+	 * 1.1.5 新增：非 op 玩家打开服务端配置标签页时，Provider 列表应该禁止手动滚动
+	 * （但 init 时仍会自动定位到 activeProvider，见 {@link #scrollToProvider}）。
+	 * 锁定后玩家无法用滚轮改变 scrollOffset，但仍能看到自动定位后的 activeProvider 附近区域。
+	 */
+	private boolean scrollLocked = false;
+
+	/**
+	 * 选中锁定标志——true 时禁止玩家点击切换选中项。
+	 *
+	 * 1.1.5 新增：非 op 玩家打开服务端配置标签页时，Provider 列表应该禁止选中切换
+	 * （非 op 只能看 activeProvider 的状态，不能切到别的 Provider 查看——没有意义，
+	 * 看了也改不了）。锁定时点击不触发 onSelect 回调。
+	 */
+	private boolean selectionLocked = false;
+
+	/**
+	 * 灰显标志——true 时列表所有文字用灰色绘制（包括 active provider 的绿色标记）。
+	 *
+	 * 1.1.5 新增：非 op 玩家打开服务端配置标签页时，整个列表应该视觉上呈现"不可用"
+	 * 状态——不只是锁定交互，还要让玩家一眼看出"这不是给我操作的"。
+	 * 单纯锁定滚动和选中但颜色正常，玩家可能以为"列表能用、只是这几个 Provider
+	 * 碰巧不能选"；全部变灰配合横幅提示，语义最清晰。
+	 * active provider 的 ✓ 标记和绿色文字也一起变灰——非 op 玩家看到的应该是
+	 * "只读展示"而非"正常列表但点不了"，保留绿色会让 active provider 看起来
+	 * 像是"可选的"，与只读语义冲突。
+	 */
+	private boolean greyedOut = false;
+
 	public ProviderListWidget(int x, int y, int width, int height,
 							  String[] providerIds, String initiallySelected,
 							  ActiveProvider activeProvider, Consumer<String> onSelect) {
@@ -72,6 +103,60 @@ public class ProviderListWidget extends ClickableWidget {
 		this.activeProvider = activeProvider;
 		this.onSelect = onSelect;
 		this.selectedProvider = initiallySelected;
+	}
+
+	/** 设置滚动锁定状态——true 禁止手动滚动，false 恢复正常。 */
+	public void setScrollLocked(boolean locked) {
+		this.scrollLocked = locked;
+	}
+
+	/** 设置选中锁定状态——true 禁止点击切换，false 恢复正常。 */
+	public void setSelectionLocked(boolean locked) {
+		this.selectionLocked = locked;
+	}
+
+	/** 设置灰显状态——true 时所有文字变灰（含 active 标记），false 恢复正常配色。 */
+	public void setGreyedOut(boolean greyedOut) {
+		this.greyedOut = greyedOut;
+	}
+
+	/**
+	 * 把列表滚动到让指定 Provider 完整可见的位置。
+	 *
+	 * 1.1.5 新增：应用户要求"每次打开界面自动滚动到选中并应用的 Provider"。
+	 * 旧版每次 init() 重建都把 scrollOffset 重置为 0，如果 activeProvider 排在
+	 * 列表靠后位置（比如 ollama 排第 8 个），玩家每次打开都要手动滚下去找。
+	 *
+	 * 自动定位逻辑：计算目标 Provider 的行 y 坐标，如果已在可视区域内不动；
+	 * 在可视区域上方则往上滚到刚好完整显示该行；在下方则往下滚到刚好完整显示。
+	 * 优先保证该行可见，不追求居中——列表本来就不长，能看到就行。
+	 */
+	public void scrollToProvider(String providerId) {
+		int targetIndex = -1;
+		for (int i = 0; i < providerIds.length; i++) {
+			if (providerIds[i].equals(providerId)) {
+				targetIndex = i;
+				break;
+			}
+		}
+		if (targetIndex < 0) return;
+
+		int rowY = targetIndex * ENTRY_HEIGHT;
+		int viewHeight = getHeight();
+		int max = maxScrollOffset();
+
+		// 如果该行在当前偏移下已经完整可见，不动。
+		if (rowY >= scrollOffset && rowY + ENTRY_HEIGHT <= scrollOffset + viewHeight) {
+			return;
+		}
+		// 该行在可视区域上方：滚到该行顶部对齐可视区域顶部。
+		if (rowY < scrollOffset) {
+			scrollOffset = rowY;
+		} else {
+			// 该行在可视区域下方：滚到该行底部对齐可视区域底部。
+			scrollOffset = rowY + ENTRY_HEIGHT - viewHeight;
+		}
+		scrollOffset = Math.max(0, Math.min(max, scrollOffset));
 	}
 
 	/** 从代码里（而非玩家点击）重新设定选中项——例如收到服务端快照确认后，把列表选中态跟回真正生效的 Provider。 */
@@ -120,7 +205,10 @@ public class ProviderListWidget extends ClickableWidget {
 			if (rowY + ENTRY_HEIGHT > viewTop && rowY < viewBottom) {
 				boolean isSelected = id.equals(selectedProvider);
 				boolean isActive = id.equals(activeProvider.get());
-				boolean rowHovered = hovered && mouseX >= x && mouseX < x + width
+				// 1.1.5：灰显模式下禁用 hover 效果——非 op 玩家的列表是只读展示，
+				// 不应该有 hover 反馈（hover 反馈暗示"可交互"），只画选中态描边
+				// 让玩家知道当前看的是哪个 Provider。
+				boolean rowHovered = !greyedOut && hovered && mouseX >= x && mouseX < x + width
 						&& mouseY >= Math.max(rowY, viewTop) && mouseY < Math.min(rowY + ENTRY_HEIGHT, viewBottom);
 
 				if (rowHovered) {
@@ -136,12 +224,16 @@ public class ProviderListWidget extends ClickableWidget {
 					context.fill(x, rowY, x + textAreaWidth, rowY + ENTRY_HEIGHT, HOVER_BG);
 				}
 
-				int textColor = isActive ? Colors.GREEN : Colors.WHITE;
+				// 1.1.5：灰显时所有文字用灰色，包括 active provider 的绿色标记——
+				// 非 op 列表是只读展示，保留绿色会让 active provider 看起来"可选"，
+				// 与只读语义冲突。非灰显时保持原配色（active=绿、其他=白）。
+				int textColor = greyedOut ? Colors.GRAY : (isActive ? Colors.GREEN : Colors.WHITE);
+				int checkColor = greyedOut ? Colors.GRAY : Colors.GREEN;
 				int textX = x + 6;
 				if (isActive) {
 					// 行首打勾标记"已启用/生效中"，与"仅选中查看"的描边区分开。
 					context.drawTextWithShadow(textRenderer, Text.literal("✓"), textX,
-							rowY + (ENTRY_HEIGHT - textRenderer.fontHeight) / 2, Colors.GREEN);
+							rowY + (ENTRY_HEIGHT - textRenderer.fontHeight) / 2, checkColor);
 					textX += textRenderer.getWidth("✓ ");
 				}
 				context.drawTextWithShadow(textRenderer,
@@ -185,6 +277,8 @@ public class ProviderListWidget extends ClickableWidget {
 
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+		// 1.1.5：滚动锁定时禁止手动滚动（非 op 玩家打开服务端配置时）。
+		if (scrollLocked) return false;
 		if (!needsScrollbar()) return false;
 		if (!(mouseX >= getX() && mouseX < getX() + getWidth() && mouseY >= getY() && mouseY < getY() + getHeight())) {
 			return false;
@@ -200,6 +294,12 @@ public class ProviderListWidget extends ClickableWidget {
 
 	@Override
 	public void onClick(double mouseX, double mouseY) {
+		// 1.1.5：选中锁定时禁止点击切换（非 op 玩家打开服务端配置时）。
+		// ClickableWidget.onClick 在 1.21.1 返回 void（不是 boolean），所以这里
+		// 用 return 提前退出方法即可实现"锁定时不执行选中"，不需要返回值告知父类。
+		// 父类调用 onClick 时不会检查返回值，锁定时方法体直接 return 不做任何事，
+		// 等同于"点击被吞掉"——视觉上玩家点了没反应，正是非 op 该有的行为。
+		if (selectionLocked) return;
 		int rowY = getY() - scrollOffset;
 		int viewTop = getY();
 		int viewBottom = getY() + getHeight();
